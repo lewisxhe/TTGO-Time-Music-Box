@@ -55,7 +55,47 @@
 
 #define TAG "[main]"
 
+// ets_printf("err_code : %d file: \"%s\" line %d\nfunc: %s\nexpression: %s\ninfo:%s\n", code, __FILE__, __LINE__, __ASSERT_FUNC, info);
+#define APP_ERROR_CHECK(code, info, go)                                                                 \
+    do                                                                                                  \
+    {                                                                                                   \
+        if (code)                                                                                       \
+        {                                                                                               \
+            ets_printf("err_code : %d file: \"%s\" line %d info:%s\n", code, __FILE__, __LINE__, info); \
+            go;                                                                                         \
+        }                                                                                               \
+    } while (0)
+
 #define SD_ROOT "/sdcard"
+#define BIJINT_SERVER "www.bijint.com"
+#define BIJINT_PORT 80
+
+// ==========================================================
+// Define which spi bus to use TFT_VSPI_HOST or TFT_HSPI_HOST
+#define SPI_BUS TFT_VSPI_HOST
+// ==========================================================
+#define MARGIN_X 12
+#define MARGIN_Y 12
+
+static char http_buf[1024];
+static const char *HTTP_REQUEST =
+    // "GET /assets/toppict/jp/t1/%.2d%.2d.jpg HTTP/1.1\r\n"
+    // "GET /assets/pict/jp/pc/%.2d%.2d.jpg HTTP/1.1\r\n"
+    // "GET /assets/pict/hiroshima/pc/%.2d%.2d.jpg HTTP/1.1\r\n"
+    "GET /assets/pict/kids-fo/pc/%.2d%.2d.jpg HTTP/1.1\r\n"
+    "Host: " BIJINT_SERVER "\r\n"
+    "User-Agent: esp-idf/3.1 espressif-esp32\r\n"
+    "Accept: image/webp,image/apng,image/*,*/*;q=0.8\r\n"
+    "Referer: http://" BIJINT_SERVER "/\r\n"
+    "\r\n";
+
+static time_t now = 0;
+static struct tm timeinfo = {0};
+static SemaphoreHandle_t xDisplaySemaphore = NULL;
+static SemaphoreHandle_t xHttpSemaphore = NULL;
+static TimerHandle_t xTimer;
+static char recv_buf[1024];
+static QueueHandle_t xQueue = NULL;
 
 /* event for handler "bt_av_hdl_stack_up */
 enum
@@ -64,8 +104,6 @@ enum
 };
 
 /* handler for bluetooth stack enabled events */
-static void bt_av_hdl_stack_evt(uint16_t event, void *p_param);
-
 static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
 {
     ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
@@ -166,14 +204,6 @@ void bt_task_init(void)
 
 void initHardware(void)
 {
-
-// ==========================================================
-// Define which spi bus to use TFT_VSPI_HOST or TFT_HSPI_HOST
-#define SPI_BUS TFT_VSPI_HOST
-    // ==========================================================
-#define MARGIN_X 12
-#define MARGIN_Y 12
-
     // static char tmp_buf[64]; // buffer for formating TFT display string
 
     // ========  PREPARE DISPLAY INITIALIZATION  =========
@@ -282,27 +312,7 @@ void initHardware(void)
     _fg = TFT_ORANGE;
     TFT_print("BiJin ToKei", MARGIN_X, MARGIN_Y);
 
-    // TFT_fillScreen(TFT_ORANGE);
-    // vTaskDelay(2000 / portTICK_RATE_MS);
-    // TFT_fillScreen(TFT_OLIVE);
-    // vTaskDelay(2000 / portTICK_RATE_MS);
-
-    vTaskDelay(2000 / portTICK_RATE_MS);
-
     _fg = TFT_BLUE;
-}
-
-/*-------------------------------------------*/
-
-static time_t now = 0;
-static struct tm timeinfo = {0};
-
-void refresh_time(void)
-{
-    time(&now);
-    localtime_r(&now, &timeinfo);
-    // now += (TIMEZONE * 60 * 60);
-    // timeinfo = gmtime(&now);
 }
 
 bool obtain_time(void)
@@ -313,7 +323,8 @@ bool obtain_time(void)
     sntp_setservername(0, "pool.ntp.org");
     sntp_init();
 
-    refresh_time();
+    time(&now);
+    localtime_r(&now, &timeinfo);
     // wait for time to be set
     int retry = 0;
     const int retry_count = 10;
@@ -321,12 +332,14 @@ bool obtain_time(void)
     {
         ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
-        refresh_time();
+        time(&now);
+        localtime_r(&now, &timeinfo);
     }
 
     if (timeinfo.tm_year < (2016 - 1900))
     {
         ESP_LOGI(TAG, "System time NOT set.");
+        esp_restart();
         return false;
     }
 
@@ -338,34 +351,7 @@ bool obtain_time(void)
     return true;
 }
 
-#define APP_ERROR_CHECK(code, info, go)                                                                                                           \
-    do                                                                                                                                            \
-    {                                                                                                                                             \
-        if (code)                                                                                                                                 \
-        {                                                                                                                                         \
-            ets_printf("err_code : %d file: \"%s\" line %d\nfunc: %s\nexpression: %s\ninfo:%s\n", code, __FILE__, __LINE__, __ASSERT_FUNC, info); \
-            go;                                                                                                                                   \
-        }                                                                                                                                         \
-    } while (0)
-#define BIJINT_SERVER "www.bijint.com"
-#define BIJINT_PORT 80
-static char http_buf[1024];
-static const char *HTTP_REQUEST =
-    // "GET /assets/toppict/jp/t1/%.2d%.2d.jpg HTTP/1.1\r\n"
-    // "GET /assets/pict/jp/pc/%.2d%.2d.jpg HTTP/1.1\r\n"
-    // "GET /assets/pict/hiroshima/pc/%.2d%.2d.jpg HTTP/1.1\r\n"
-    "GET /assets/pict/kids-fo/pc/%.2d%.2d.jpg HTTP/1.1\r\n"
-    "Host: " BIJINT_SERVER "\r\n"
-    "User-Agent: esp-idf/1.0 esp32\r\n"
-    "Accept: image/webp,image/apng,image/*,*/*;q=0.8\r\n"
-    "Referer: http://" BIJINT_SERVER "/\r\n"
-    "\r\n";
-
-
-
-
-
-size_t readBytesUntil(char terminator,const char *src, char *buffer, size_t length)
+size_t readBytesUntil(char terminator, const char *src, char *buffer, size_t length)
 {
     if (length < 1)
     {
@@ -388,9 +374,14 @@ size_t readBytesUntil(char terminator,const char *src, char *buffer, size_t leng
 bool request_image(uint8_t hours, uint8_t mintues)
 {
     int fd, ret;
+    int offset = -1;
+    uint32_t file_size = 0;
+    char filename[64] = {0};
     struct sockaddr_in add;
     struct hostent *server = NULL;
     struct timeval timeout = {5, 0};
+    FILE *f = NULL;
+    char status[32] = {0};
 
     bzero(&add, sizeof(add));
     add.sin_family = AF_INET;
@@ -407,43 +398,54 @@ bool request_image(uint8_t hours, uint8_t mintues)
     ret = connect(fd, (struct sockaddr *)&add, sizeof(add));
     APP_ERROR_CHECK(ret < 0, "Connect host fail", goto ERR1);
 
+    ret = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    APP_ERROR_CHECK(ret < 0, "Set recv time out fail", goto ERR1);
+
     snprintf(http_buf, sizeof(http_buf), HTTP_REQUEST, hours, mintues);
     ret = write(fd, http_buf, strlen(http_buf));
     APP_ERROR_CHECK(ret < 0, "Send HTTP Request fail", goto ERR1);
 
-    ret = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    APP_ERROR_CHECK(ret < 0, "Set recv time out fail", goto ERR1);
-
 #if 1
-    int offset = -1;
-    int file_size = 0;
-    char filename[64];
-    char recv_buf[512];
-    bzero(filename, sizeof(filename));
-    snprintf(filename, sizeof(filename), "%s/%d%d.jpg", SD_ROOT, hours, mintues);
-
-    ESP_LOGI(TAG, "open %s", filename);
-    FILE *f = fopen(filename, "w");
-    // APP_ERROR_CHECK(f ==NULL, "Open file fail", goto ERR1);
-
-    if (f == NULL)
-    {
-        perror("Open");
-        ESP_LOGI(TAG, "Open fail");
-        goto ERR1;
-    }
 
     ret = read(fd, recv_buf, sizeof(recv_buf));
     APP_ERROR_CHECK(ret < 0, "Read socket fail", goto ERR1);
 
+    readBytesUntil('\r', recv_buf, status, sizeof(status));
+
+    if (strcmp(status, "HTTP/1.1 200 OK") != 0)
+    {
+        ESP_LOGI(TAG, "Request fail HTTP Return %s", status);
+        goto ERR1;
+    }
+
+    char *s = strstr(recv_buf, "Content-Length");
+    APP_ERROR_CHECK(!s, "Can't find length", goto ERR1);
+
+    while (*s++ != ' ')
+    {
+    }
+    size_t length = atoi(s);
+    ESP_LOGI(TAG, "Content-Length: %u", length);
+
+    // Skip HTTP headers
     for (int i = 0; i < ret; ++i)
     {
         if ((recv_buf[i] == '\r') && (recv_buf[i + 1] == '\n') && (recv_buf[i + 2] == '\r') && (recv_buf[i + 3] == '\n'))
         {
-            ESP_LOGI(TAG, "Find offset : %d", offset);
             offset = i + 4;
+            ESP_LOGI(TAG, "Find offset : %d", offset);
         }
     }
+
+    if (offset == -1)
+    {
+        ESP_LOGI(TAG, "Can't not find HTTP headers");
+        goto ERR1;
+    }
+
+    snprintf(filename, sizeof(filename), "%s/%d%d.jpg", SD_ROOT, hours, mintues);
+    f = fopen(filename, "w");
+    APP_ERROR_CHECK(f == NULL, "Open file fail", goto ERR1);
 
     if (offset > 0 && offset < ret)
     {
@@ -451,61 +453,137 @@ bool request_image(uint8_t hours, uint8_t mintues)
         file_size += fwrite(recv_buf + offset, 1, ret - offset, f);
     }
 
-    do
+    // while((ret = recv(fd,recv_buf,sizeof(recv_buf),0)) > 0)
+    while ((ret = read(fd, recv_buf, sizeof(recv_buf))) > 0)
     {
-        ret = read(fd, recv_buf, sizeof(recv_buf));
         file_size += fwrite(recv_buf, 1, ret, f);
-    } while (ret > 0);
+    }
 
-    ESP_LOGI(TAG, " file_size : %d", file_size);
+    if (file_size != length)
+    {
+        ESP_LOGI(TAG, "Recv Image fail");
+        goto ERR2;
+    }
+
+    ESP_LOGI(TAG, " file_size : %u", file_size);
     fclose(f);
-
 #endif
-    TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
+
+    // TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
     // TFT_jpg_image(CENTER, CENTER, 1, fd, NULL, NULL, 0);
     close(fd);
     return true;
+
+ERR2:
+    fclose(f);
+    unlink(filename);
 ERR1:
     close(fd);
 ERR0:
     return false;
 }
 
-SemaphoreHandle_t xSemaphore = NULL;
-
 void timing_callback(void *param)
 {
+    static bool isRequest = false;
     static uint8_t last_mintues = 0;
+
     time(&now);
     localtime_r(&now, &timeinfo);
 
+    if (!isRequest && 59 <= (timeinfo.tm_sec + 50))
+    {
+        isRequest = true;
+        // xSemaphoreGiveFromISR(xHttpSemaphore, NULL);
+        uint8_t message = 0x01;
+        xQueueSendFromISR(xQueue, &message, NULL);
+    }
+
     if (last_mintues != timeinfo.tm_min)
     {
+        isRequest = false;
         last_mintues = timeinfo.tm_min;
-        xSemaphoreGiveFromISR(xSemaphore, NULL);
+        xSemaphoreGiveFromISR(xDisplaySemaphore, NULL);
     }
-    // ESP_LOGI(TAG,"%.2d:%.2d ",timeinfo.tm_hour,timeinfo.tm_min);
 }
 
 void http_task(void *param)
 {
-    xSemaphore = xSemaphoreCreateBinary();
-    TimerHandle_t xTimer = xTimerCreate("http_timer",
-                                        1000 / portTICK_PERIOD_MS,
-                                        pdTRUE,
-                                        (void *)0,
-                                        timing_callback);
-    APP_ERROR_CHECK(!xTimer, "Create xTimer timer fail", esp_restart());
-    xTimerStart(xTimer, 100);
+    uint8_t state;
+    xHttpSemaphore = xSemaphoreCreateBinary();
 
     for (;;)
     {
-        if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE)
+#if 0
+        if (xSemaphoreTake(xHttpSemaphore, portMAX_DELAY) == pdTRUE)
         {
-            ESP_LOGI(TAG, "update images  .....");
-            request_image(timeinfo.tm_hour, timeinfo.tm_min);
+            ESP_LOGI(TAG, "update images [%d]:[%d] Images", timeinfo.tm_hour, timeinfo.tm_min + 1);
+            request_image(timeinfo.tm_hour, timeinfo.tm_min + 1);
         }
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+#else
+
+        if (xQueueReceive(xQueue, &state, 100 / portTICK_PERIOD_MS) == pdPASS)
+        {
+            switch (state)
+            {
+            case 0x01:
+            {
+                int retry = 0;
+                bool isSuccess = false;
+                ESP_LOGI(TAG, "update images [%d]:[%d] Images", timeinfo.tm_hour, timeinfo.tm_min+5);
+
+                do
+                {
+                    isSuccess = request_image(timeinfo.tm_hour, timeinfo.tm_min + 5);
+                    retry++;
+                } while (retry < 3 && !isSuccess);
+            }
+            break;
+            default:
+                break;
+            }
+        }
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+#endif
+    }
+}
+
+void display_task(void *param)
+{
+    char filename[64];
+    char time_buf[256];
+    struct stat st;
+    xDisplaySemaphore = xSemaphoreCreateBinary();
+
+    for (;;)
+    {
+        if (xSemaphoreTake(xDisplaySemaphore, portMAX_DELAY) == pdTRUE)
+        {
+            bzero(filename, sizeof(filename));
+            snprintf(filename, sizeof(filename), "%s/%d%d.jpg", SD_ROOT, timeinfo.tm_hour, timeinfo.tm_min);
+
+            // Check if destination file exists before renaming
+            if (stat(filename, &st) == 0)
+            {
+                ESP_LOGI(TAG, "Update Images ...");
+                TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
+            }
+            else
+            {
+
+                ESP_LOGI(TAG, "Update local time ...");
+                TFT_fillRect(0, 0, _width, _height, TFT_BLACK);
+                TFT_setFont(FONT_7SEG, NULL);
+                _fg = TFT_GREEN;
+                set_7seg_font_atrib(24, 6, 1, TFT_GREEN);
+                sprintf(time_buf, "%.2d:%.2d", timeinfo.tm_hour, timeinfo.tm_min);
+                TFT_print(time_buf, CENTER, CENTER);
+                _fg = TFT_CYAN;
+                set_7seg_font_atrib(8, 2, 1, TFT_CYAN);
+                sprintf(time_buf, "%d-%.2d-%.2d", (timeinfo.tm_year + 1900), (timeinfo.tm_mon + 1), timeinfo.tm_mday);
+                TFT_print(time_buf, CENTER, _height - MARGIN_Y - TFT_getfontheight());
+            }
+        }
     }
 }
 
@@ -583,7 +661,6 @@ void init_sd_card(void)
 
 void app_main()
 {
-
     /* Initialize NVS — it is used to store PHY calibration data */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -603,7 +680,20 @@ void app_main()
 
     bt_task_init();
 
+    xQueue = xQueueCreate(10, sizeof(uint8_t));
+
+    xTimer = xTimerCreate("http_timer",
+                          1000 / portTICK_PERIOD_MS,
+                          pdTRUE,
+                          (void *)0,
+                          timing_callback);
+
+    APP_ERROR_CHECK(!xTimer, "Create xTimer timer fail", esp_restart());
+
     xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
+
+    xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
+
+    xTimerStart(xTimer, 100);
 }
 
-// python /d/ESP32/esp-idf-v3.1-rc1/components/esptool_py/esptool/esptool.py --chip esp32 --port COM30 --baud 115200 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size detect 0x1000 /d/ESP32/esp-idf-v3.1-rc1/ESP32_PIC_A2DP/build/bootloader/bootloader.bin 0x10000 /d/ESP32/esp-idf-v3.1-rc1/ESP32_PIC_A2DP/build/a2dp_sink.bin 0x8000 /d/ESP32/esp-idf-v3.1-rc1/ESP32_PIC_A2DP/build/partitions_singleapp.bin
