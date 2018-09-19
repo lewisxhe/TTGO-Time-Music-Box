@@ -55,9 +55,10 @@ void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
 {
     size_t bytes_written;
     i2s_write(0, data, len, &bytes_written, portMAX_DELAY);
-    if (++m_pkt_cnt % 100 == 0) {
-        ESP_LOGI(BT_AV_TAG, "Audio packet count %u", m_pkt_cnt);
-    }
+    //disable fast 
+    // if (++m_pkt_cnt % 100 == 0) {
+    //     ESP_LOGI(BT_AV_TAG, "Audio packet count %u", m_pkt_cnt);
+    // }
 }
 
 void bt_app_alloc_meta_buffer(esp_avrc_ct_cb_param_t *param)

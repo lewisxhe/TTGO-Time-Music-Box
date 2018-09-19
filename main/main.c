@@ -361,6 +361,30 @@ static const char *HTTP_REQUEST =
     "Referer: http://" BIJINT_SERVER "/\r\n"
     "\r\n";
 
+
+
+
+
+size_t readBytesUntil(char terminator,const char *src, char *buffer, size_t length)
+{
+    if (length < 1)
+    {
+        return 0;
+    }
+    size_t index = 0;
+    while (index < length)
+    {
+        int c = *src++;
+        if (c < 0 || c == terminator)
+        {
+            break;
+        }
+        *buffer++ = (char)c;
+        index++;
+    }
+    return index; // return number of characters, not including null terminator
+}
+
 bool request_image(uint8_t hours, uint8_t mintues)
 {
     int fd, ret;
@@ -405,7 +429,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
     if (f == NULL)
     {
         perror("Open");
-        ESP_LOGI(TAG,"Open fail");
+        ESP_LOGI(TAG, "Open fail");
         goto ERR1;
     }
 
@@ -416,7 +440,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
     {
         if ((recv_buf[i] == '\r') && (recv_buf[i + 1] == '\n') && (recv_buf[i + 2] == '\r') && (recv_buf[i + 3] == '\n'))
         {
-            ESP_LOGI(TAG,"Find offset : %d",offset);
+            ESP_LOGI(TAG, "Find offset : %d", offset);
             offset = i + 4;
         }
     }
