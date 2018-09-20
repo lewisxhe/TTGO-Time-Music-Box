@@ -69,6 +69,7 @@
 #define SD_ROOT "/sdcard"
 #define BIJINT_SERVER "www.bijint.com"
 #define BIJINT_PORT 80
+#define HTTP_REQUEST_RETRY_COUNT 5
 
 // ==========================================================
 // Define which spi bus to use TFT_VSPI_HOST or TFT_HSPI_HOST
@@ -93,7 +94,7 @@ static time_t now = 0;
 static struct tm timeinfo = {0};
 static SemaphoreHandle_t xDisplaySemaphore = NULL;
 static SemaphoreHandle_t xHttpSemaphore = NULL;
-static TimerHandle_t xTimer;
+static TimerHandle_t xTimer = NULL;
 static char recv_buf[1024];
 static QueueHandle_t xQueue = NULL;
 
@@ -382,6 +383,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
     struct timeval timeout = {5, 0};
     FILE *f = NULL;
     char status[32] = {0};
+    static struct stat st;
 
     bzero(&add, sizeof(add));
     add.sin_family = AF_INET;
@@ -392,6 +394,8 @@ bool request_image(uint8_t hours, uint8_t mintues)
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
     APP_ERROR_CHECK(fd < 0, "Create socket fail", goto ERR0);
+
+    ESP_LOGI(TAG, "fd : %d", fd);
 
     bcopy((char *)server->h_addr, (char *)&add.sin_addr.s_addr, server->h_length);
 
@@ -424,6 +428,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
     while (*s++ != ' ')
     {
     }
+
     size_t length = atoi(s);
     ESP_LOGI(TAG, "Content-Length: %u", length);
 
@@ -444,6 +449,15 @@ bool request_image(uint8_t hours, uint8_t mintues)
     }
 
     snprintf(filename, sizeof(filename), "%s/%d%d.jpg", SD_ROOT, hours, mintues);
+
+    if (stat(filename, &st) == 0)
+    {
+        ESP_LOGI(TAG, "The file already exists");
+        st.st_size == length;
+        close(fd);
+        return true;
+    }
+
     f = fopen(filename, "w");
     APP_ERROR_CHECK(f == NULL, "Open file fail", goto ERR1);
 
@@ -453,10 +467,50 @@ bool request_image(uint8_t hours, uint8_t mintues)
         file_size += fwrite(recv_buf + offset, 1, ret - offset, f);
     }
 
-    // while((ret = recv(fd,recv_buf,sizeof(recv_buf),0)) > 0)
-    while ((ret = read(fd, recv_buf, sizeof(recv_buf))) > 0)
+    timeout.tv_sec = 30;
+    timeout.tv_usec = 0;
+    ret = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval));
+
+    APP_ERROR_CHECK(ret < 0, "setsockopt  fail", goto ERR2);
+    for (;;)
     {
-        file_size += fwrite(recv_buf, 1, ret, f);
+        if ((ret = recv(fd, recv_buf, sizeof(recv_buf), 0)) == -1)
+        {
+            if (errno == EWOULDBLOCK || errno == EAGAIN)
+            {
+                ESP_LOGI(TAG, "recv timeout ...\n");
+                goto ERR2;
+            }
+            else if (errno == EINTR)
+            {
+                ESP_LOGI(TAG, "interrupt by signal...\n");
+                continue;
+            }
+            else if (errno == ENOENT)
+            {
+                ESP_LOGI(TAG, "recv RST segement...\n");
+                goto ERR2;
+            }
+            else
+            {
+                ESP_LOGI(TAG, "unknown error!\n");
+                // exit(1);
+                goto ERR2;
+            }
+        }
+        else if (ret == 0)
+        {
+            ESP_LOGI(TAG, "peer closed ...\n");
+            break;
+        }
+        else
+        {
+            file_size += fwrite(recv_buf, 1, ret, f);
+        }
+        if (file_size == length)
+        {
+            break;
+        }
     }
 
     if (file_size != length)
@@ -472,6 +526,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
     // TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
     // TFT_jpg_image(CENTER, CENTER, 1, fd, NULL, NULL, 0);
     close(fd);
+    ESP_LOGI(TAG, "Close fd: %d", fd);
     return true;
 
 ERR2:
@@ -479,72 +534,70 @@ ERR2:
     unlink(filename);
 ERR1:
     close(fd);
+    ESP_LOGI(TAG, "ERR1 Close fd: %d", fd);
 ERR0:
     return false;
 }
 
 void timing_callback(void *param)
 {
-    static bool isRequest = false;
     static uint8_t last_mintues = 0;
+    static uint8_t last_day = 0;
 
     time(&now);
     localtime_r(&now, &timeinfo);
 
-    if (!isRequest && 59 <= (timeinfo.tm_sec + 50))
+    if (last_day != timeinfo.tm_mday)
     {
-        isRequest = true;
-        // xSemaphoreGiveFromISR(xHttpSemaphore, NULL);
-        uint8_t message = 0x01;
-        xQueueSendFromISR(xQueue, &message, NULL);
+        last_day = timeinfo.tm_mday;
+        xSemaphoreGiveFromISR(xHttpSemaphore, NULL);
     }
 
     if (last_mintues != timeinfo.tm_min)
     {
-        isRequest = false;
         last_mintues = timeinfo.tm_min;
         xSemaphoreGiveFromISR(xDisplaySemaphore, NULL);
     }
 }
 
+void get_pic(void)
+{
+    int hh = timeinfo.tm_hour, mm = timeinfo.tm_min, max_hh = 23;
+RELOAD:
+    for (int h = hh; h < max_hh; h++)
+    {
+        for (int m = mm; m < 59; m++)
+        {
+            int retry = 0;
+            bool isSuccess = false;
+            ESP_LOGI(TAG, "update images [%d]:[%d] Images", h, m);
+            do
+            {
+                isSuccess = request_image(h, m);
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
+                retry++;
+            } while (retry < HTTP_REQUEST_RETRY_COUNT && !isSuccess);
+        }
+        mm = 0;
+    }
+
+    if (hh != 0)
+    {
+        max_hh = hh;
+        hh = 0;
+        goto RELOAD;
+    }
+}
+
 void http_task(void *param)
 {
-    uint8_t state;
     xHttpSemaphore = xSemaphoreCreateBinary();
-
     for (;;)
     {
-#if 0
         if (xSemaphoreTake(xHttpSemaphore, portMAX_DELAY) == pdTRUE)
         {
-            ESP_LOGI(TAG, "update images [%d]:[%d] Images", timeinfo.tm_hour, timeinfo.tm_min + 1);
-            request_image(timeinfo.tm_hour, timeinfo.tm_min + 1);
+            get_pic();
         }
-#else
-
-        if (xQueueReceive(xQueue, &state, 100 / portTICK_PERIOD_MS) == pdPASS)
-        {
-            switch (state)
-            {
-            case 0x01:
-            {
-                int retry = 0;
-                bool isSuccess = false;
-                ESP_LOGI(TAG, "update images [%d]:[%d] Images", timeinfo.tm_hour, timeinfo.tm_min+5);
-
-                do
-                {
-                    isSuccess = request_image(timeinfo.tm_hour, timeinfo.tm_min + 5);
-                    retry++;
-                } while (retry < 3 && !isSuccess);
-            }
-            break;
-            default:
-                break;
-            }
-        }
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-#endif
     }
 }
 
@@ -589,10 +642,13 @@ void display_task(void *param)
 
 void init_sd_card(void)
 {
-    ESP_LOGI(TAG, "Initializing SD card");
+
+    TFT_print("Initializing SD card", MARGIN_X, LASTY + TFT_getfontheight() + 2);
 
 #ifndef USE_SPI_MODE
-    ESP_LOGI(TAG, "Using SDMMC peripheral");
+
+    TFT_print("Using SDMMC peripheral", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
 
     // To use 1-line SD mode, uncomment the following line:
@@ -612,7 +668,7 @@ void init_sd_card(void)
     gpio_set_pull_mode(13, GPIO_PULLUP_ONLY); // D3, needed in 4- and 1-line modes
 
 #else
-    ESP_LOGI(TAG, "Using SPI peripheral");
+    TFT_print("Using SPI peripheral", MARGIN_X, LASTY + TFT_getfontheight() + 2);
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     sdspi_slot_config_t slot_config = SDSPI_SLOT_CONFIG_DEFAULT();
@@ -643,16 +699,20 @@ void init_sd_card(void)
     {
         if (ret == ESP_FAIL)
         {
-            ESP_LOGE(TAG, "Failed to mount filesystem. "
-                          "If you want the card to be formatted, set format_if_mount_failed = true.");
+            TFT_print("Failed to mount filesystem.", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+            TFT_print("If you want the card to be formatted, set format_if_mount_failed = true.", MARGIN_X, LASTY + TFT_getfontheight() + 2);
         }
         else
         {
-            ESP_LOGE(TAG, "Failed to initialize the card (%s). "
-                          "Make sure SD card lines have pull-up resistors in place.",
-                     esp_err_to_name(ret));
+            snprintf(recv_buf, sizeof(recv_buf), "Failed to initialize the card (%s). ", esp_err_to_name(ret));
+            TFT_print(recv_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
+            TFT_print("Make sure SD card lines have pull-up resistors in place.", MARGIN_X, LASTY + TFT_getfontheight() + 2);
         }
-        return;
+
+        for (;;)
+        {
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+        }
     }
 
     // Card has been initialized, print its properties
@@ -661,6 +721,9 @@ void init_sd_card(void)
 
 void app_main()
 {
+
+    xQueue = xQueueCreate(10, sizeof(uint8_t));
+
     /* Initialize NVS — it is used to store PHY calibration data */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -680,8 +743,6 @@ void app_main()
 
     bt_task_init();
 
-    xQueue = xQueueCreate(10, sizeof(uint8_t));
-
     xTimer = xTimerCreate("http_timer",
                           1000 / portTICK_PERIOD_MS,
                           pdTRUE,
@@ -696,4 +757,3 @@ void app_main()
 
     xTimerStart(xTimer, 100);
 }
-

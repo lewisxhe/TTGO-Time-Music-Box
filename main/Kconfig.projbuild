@@ -1,3 +1,14 @@
+menu "Blueroid Configuration"
+
+choice TSTS
+    prompt "A2DP Sink Output"
+        default A2DP_SINK_OUTPUT_EXTERNAL_I2S
+        help
+            Select to use Internal DAC or external I2S driver
+endchoice
+endmenu
+
+
 menu "A2DP Example Configuration"
 
 choice A2DP_SINK_OUTPUT

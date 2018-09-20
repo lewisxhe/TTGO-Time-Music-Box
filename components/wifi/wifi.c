@@ -17,8 +17,7 @@
 #define PREPARE_CONNECT_BIT 0x02
 #define CONNECTED_BIT 0x04
 
-#define OFFSET_X    12
-#define OFFSET_Y    12
+#define MARGIN_X 12
 
 EventGroupHandle_t wifi_event_group = NULL;
 
@@ -97,9 +96,8 @@ static esp_err_t sys_event_handler(void *ctx, system_event_t *event)
     case SYSTEM_EVENT_STA_GOT_IP:
         ESP_LOGI(TAG, "SYSTEM_EVENT_STA_GOT_IP\n");
 
-        snprintf(tmp_buf, sizeof(tmp_buf), "got ip:%s", ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip) );
-        TFT_print(tmp_buf, OFFSET_X, OFFSET_Y + TFT_getfontheight() + 10);
-
+        snprintf(tmp_buf, sizeof(tmp_buf), "got ip:%s", ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip));
+        TFT_print(tmp_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
         xEventGroupSetBits(wifi_event_group, CONNECTED_BIT);
 
         break;
@@ -146,7 +144,7 @@ void init_wifi(void)
     {
         ESP_LOGI(TAG, "wifi is not config ,Start SmartConfig  Start...");
         snprintf(tmp_buf, sizeof(tmp_buf), "wifi is not config,Start SmartConfig  Start...");
-        TFT_print(tmp_buf, 12, 12 + TFT_getfontheight() + 1);
+        TFT_print(tmp_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
 
         ESP_ERROR_CHECK(esp_wifi_start());
         ESP_ERROR_CHECK(esp_smartconfig_set_type(SC_TYPE_ESPTOUCH));
@@ -157,14 +155,13 @@ void init_wifi(void)
 
         ESP_LOGI(TAG, "SmartConfig Done...");
         snprintf(tmp_buf, sizeof(tmp_buf), "SmartConfig Done...");
-        TFT_print(tmp_buf, OFFSET_X, OFFSET_Y + TFT_getfontheight() + 2);
+        TFT_print(tmp_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
     }
     else
     {
         ESP_LOGI(TAG, "Start WiFi Connect ...");
         snprintf(tmp_buf, sizeof(tmp_buf), "Start WiFi Connect ...");
-        TFT_print(tmp_buf, OFFSET_X, OFFSET_Y + TFT_getfontheight() + 1);
-
+        TFT_print(tmp_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
         xEventGroupSetBits(wifi_event_group, PREPARE_CONNECT_BIT);
         ESP_ERROR_CHECK(esp_wifi_start());
 
