@@ -448,14 +448,34 @@ bool request_image(uint8_t hours, uint8_t mintues)
         goto ERR1;
     }
 
-    snprintf(filename, sizeof(filename), "%s/%d%d.jpg", SD_ROOT, hours, mintues);
+    snprintf(filename, sizeof(filename), "%s/%d%d-A.jpg", SD_ROOT, hours, mintues);
 
     if (stat(filename, &st) == 0)
     {
-        ESP_LOGI(TAG, "The file already exists");
-        st.st_size == length;
-        close(fd);
-        return true;
+        if (st.st_size != 0)
+        {
+            if(st.st_size == length)
+            {
+                ESP_LOGI(TAG, "The file already exists");
+                close(fd);
+                return true;
+            }
+            ESP_LOGI(TAG, "The file duplicate file name .rename .");
+
+            char rename_buf[64] = {0};
+            snprintf(rename_buf, sizeof(rename_buf), "%s/%d%d-B.jpg", SD_ROOT, hours, mintues);
+            if (stat(rename_buf, &st) == 0)
+            {
+                ESP_LOGI(TAG, "%s  - The file already exists, Unlink it", rename_buf);
+                unlink(rename_buf);
+            }
+            ESP_LOGI(TAG, "Reamne file name : %s", rename_buf);
+            rename(filename, rename_buf);
+        }
+        else
+        {
+            unlink(filename);
+        }
     }
 
     f = fopen(filename, "w");
@@ -494,7 +514,6 @@ bool request_image(uint8_t hours, uint8_t mintues)
             else
             {
                 ESP_LOGI(TAG, "unknown error!\n");
-                // exit(1);
                 goto ERR2;
             }
         }
@@ -613,17 +632,34 @@ void display_task(void *param)
         if (xSemaphoreTake(xDisplaySemaphore, portMAX_DELAY) == pdTRUE)
         {
             bzero(filename, sizeof(filename));
-            snprintf(filename, sizeof(filename), "%s/%d%d.jpg", SD_ROOT, timeinfo.tm_hour, timeinfo.tm_min);
-
+            bzero(time_buf, sizeof(time_buf));
+            snprintf(filename, sizeof(filename), "%s/%d%d-A.jpg", SD_ROOT, timeinfo.tm_hour, timeinfo.tm_min);
+            snprintf(time_buf, sizeof(time_buf), "%s/%d%d-B.jpg", SD_ROOT, timeinfo.tm_hour, timeinfo.tm_min);
             // Check if destination file exists before renaming
             if (stat(filename, &st) == 0)
             {
-                ESP_LOGI(TAG, "Update Images ...");
-                TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
+                if (st.st_size != 0)
+                {
+                    ESP_LOGI(TAG, "Update Images A ...");
+                    TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
+                }
+                else
+                    goto LOCAL_TIME;
+            }
+            else if (stat(time_buf, &st) == 0)
+            {
+                if (st.st_size != 0)
+                {
+                    ESP_LOGI(TAG, "Update Images B ...");
+                    TFT_jpg_image(CENTER, CENTER, 1, -1, time_buf, NULL, 0);
+                }
+                else
+                    goto LOCAL_TIME;
             }
             else
             {
-
+            LOCAL_TIME:
+                bzero(time_buf, sizeof(time_buf));
                 ESP_LOGI(TAG, "Update local time ...");
                 TFT_fillRect(0, 0, _width, _height, TFT_BLACK);
                 TFT_setFont(FONT_7SEG, NULL);

@@ -1,5 +1,5 @@
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "wifi.h"
@@ -140,7 +140,7 @@ void init_wifi(void)
     ESP_LOGI(TAG, "ssid : %s", conf.sta.ssid);
     ESP_LOGI(TAG, "passwd : %s", conf.sta.password);
 
-    if (!strlen(conf.sta.ssid))
+    if (!strlen((char*)conf.sta.ssid))
     {
         ESP_LOGI(TAG, "wifi is not config ,Start SmartConfig  Start...");
         snprintf(tmp_buf, sizeof(tmp_buf), "wifi is not config,Start SmartConfig  Start...");
