@@ -96,7 +96,7 @@ static SemaphoreHandle_t xDisplaySemaphore = NULL;
 static SemaphoreHandle_t xHttpSemaphore = NULL;
 static TimerHandle_t xTimer = NULL;
 static char recv_buf[1024];
-static QueueHandle_t xQueue = NULL;
+extern EventGroupHandle_t wifi_event_group;
 
 /* event for handler "bt_av_hdl_stack_up */
 enum
@@ -311,7 +311,7 @@ void initHardware(void)
     TFT_setFont(DEFAULT_FONT, NULL);
 
     _fg = TFT_ORANGE;
-    TFT_print("BiJin ToKei", MARGIN_X, MARGIN_Y);
+    TFT_print("TTGO T4 Bluetooth player & HTTP Clock", MARGIN_X, MARGIN_Y);
 
     _fg = TFT_BLUE;
 }
@@ -454,7 +454,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
     {
         if (st.st_size != 0)
         {
-            if(st.st_size == length)
+            if (st.st_size == length)
             {
                 ESP_LOGI(TAG, "The file already exists");
                 close(fd);
@@ -615,6 +615,8 @@ void http_task(void *param)
     {
         if (xSemaphoreTake(xHttpSemaphore, portMAX_DELAY) == pdTRUE)
         {
+            xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
+                                pdFALSE, pdTRUE, portMAX_DELAY);
             get_pic();
         }
     }
@@ -757,8 +759,6 @@ void init_sd_card(void)
 
 void app_main()
 {
-
-    xQueue = xQueueCreate(10, sizeof(uint8_t));
 
     /* Initialize NVS — it is used to store PHY calibration data */
     esp_err_t ret = nvs_flash_init();

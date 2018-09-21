@@ -1,0 +1,32 @@
+.config
+*.o
+*.pyc
+
+# gtags
+GTAGS
+GRTAGS
+GPATH
+
+# emacs
+.dir-locals.el
+
+# emacs temp file suffixes
+*~
+.#*
+\#*#
+
+# eclipse setting
+.settings
+
+# Example project files
+/sdkconfig
+/sdkconfig.old
+**/build
+
+
+# gcov coverage reports
+*.gcda
+*.gcno
+*/.DS_Store
+coverage.info
+coverage_report/

@@ -13,9 +13,7 @@
 
 #define TAG "[WiFi]"
 
-#define ESPTOUCH_DONE_BIT 0x01
-#define PREPARE_CONNECT_BIT 0x02
-#define CONNECTED_BIT 0x04
+
 
 #define MARGIN_X 12
 
@@ -165,7 +163,7 @@ void init_wifi(void)
         xEventGroupSetBits(wifi_event_group, PREPARE_CONNECT_BIT);
         ESP_ERROR_CHECK(esp_wifi_start());
 
-        xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, pdTRUE, pdTRUE, portMAX_DELAY);
+        xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
     }
     ESP_LOGI(TAG, "wifi task exit...");
 }
