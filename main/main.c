@@ -263,42 +263,42 @@ void initHardware(void)
     // ====================================================================================================================
 
     vTaskDelay(500 / portTICK_RATE_MS);
-    printf("\r\n==============================\r\n");
-    printf("Pins used: miso=%d, mosi=%d, sck=%d, cs=%d\r\n", PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
-    printf("==============================\r\n\r\n");
+    ESP_LOGI(TAG,"\r\n==============================\r\n");
+    ESP_LOGI(TAG,"Pins used: miso=%d, mosi=%d, sck=%d, cs=%d\r\n", PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
+    ESP_LOGI(TAG,"==============================\r\n\r\n");
 
     // ==================================================================
     // ==== Initialize the SPI bus and attach the LCD to the SPI bus ====
 
     ESP_ERROR_CHECK(spi_lobo_bus_add_device(SPI_BUS, &buscfg, &devcfg, &spi));
-    printf("SPI: display device added to spi bus (%d)\r\n", SPI_BUS);
+    ESP_LOGI(TAG,"SPI: display device added to spi bus (%d)\r\n", SPI_BUS);
     disp_spi = spi;
 
     // ==== Test select/deselect ====
     ESP_ERROR_CHECK(spi_lobo_device_select(spi, 1));
     ESP_ERROR_CHECK(spi_lobo_device_deselect(spi));
 
-    printf("SPI: attached display device, speed=%u\r\n", spi_lobo_get_speed(spi));
-    printf("SPI: bus uses native pins: %s\r\n", spi_lobo_uses_native_pins(spi) ? "true" : "false");
+    ESP_LOGI(TAG,"SPI: attached display device, speed=%u\r\n", spi_lobo_get_speed(spi));
+    ESP_LOGI(TAG,"SPI: bus uses native pins: %s\r\n", spi_lobo_uses_native_pins(spi) ? "true" : "false");
 
     // ================================
     // ==== Initialize the Display ====
 
-    printf("SPI: display init...\r\n");
+    ESP_LOGI(TAG,"SPI: display init...\r\n");
     TFT_display_init();
-    printf("OK\r\n");
+    ESP_LOGI(TAG,"OK\r\n");
 
     // ---- Detect maximum read speed ----
     max_rdclock = find_rd_speed();
-    printf("SPI: Max rd speed = %u\r\n", max_rdclock);
+    ESP_LOGI(TAG,"SPI: Max rd speed = %u\r\n", max_rdclock);
 
     // ==== Set SPI clock used for display operations ====
     spi_lobo_set_speed(spi, DEFAULT_SPI_CLOCK);
-    printf("SPI: Changed speed to %u\r\n", spi_lobo_get_speed(spi));
+    ESP_LOGI(TAG,"SPI: Changed speed to %u\r\n", spi_lobo_get_speed(spi));
 
-    printf("\r\n---------------------\r\n");
-    printf("Graphics demo started\r\n");
-    printf("---------------------\r\n");
+    ESP_LOGI(TAG,"\r\n---------------------\r\n");
+    ESP_LOGI(TAG,"Graphics demo started\r\n");
+    ESP_LOGI(TAG,"---------------------\r\n");
 
     font_rotate = 0;
     text_wrap = 0;
@@ -393,14 +393,26 @@ bool request_image(uint8_t hours, uint8_t mintues)
     APP_ERROR_CHECK(!server, " Get host ip fail", goto ERR0);
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
-    APP_ERROR_CHECK(fd < 0, "Create socket fail", goto ERR0);
+    // APP_ERROR_CHECK(fd < 0, "Create socket fail", goto ERR0);
+    if(fd  < 0){
+        static uint8_t failCount = 0;
+        if(failCount++ > 5){
+            esp_restart();
+        }
+        perror("Create socket : ");
+        goto ERR0;
+    }  
 
     ESP_LOGI(TAG, "fd : %d", fd);
 
     bcopy((char *)server->h_addr, (char *)&add.sin_addr.s_addr, server->h_length);
 
     ret = connect(fd, (struct sockaddr *)&add, sizeof(add));
-    APP_ERROR_CHECK(ret < 0, "Connect host fail", goto ERR1);
+    // APP_ERROR_CHECK(ret < 0, "Connect host fail", goto ERR1);
+    if(ret == -1){
+        perror("Create socket : ");
+        goto ERR1;
+    }
 
     ret = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     APP_ERROR_CHECK(ret < 0, "Set recv time out fail", goto ERR1);
@@ -593,7 +605,7 @@ RELOAD:
             do
             {
                 isSuccess = request_image(h, m);
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
+                vTaskDelay(5000 / portTICK_PERIOD_MS);
                 retry++;
             } while (retry < HTTP_REQUEST_RETRY_COUNT && !isSuccess);
         }
@@ -610,7 +622,6 @@ RELOAD:
 
 void http_task(void *param)
 {
-    xHttpSemaphore = xSemaphoreCreateBinary();
     for (;;)
     {
         if (xSemaphoreTake(xHttpSemaphore, portMAX_DELAY) == pdTRUE)
@@ -618,6 +629,7 @@ void http_task(void *param)
             xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
                                 pdFALSE, pdTRUE, portMAX_DELAY);
             get_pic();
+            vTaskDelay(500 / portTICK_PERIOD_MS);
         }
     }
 }
@@ -627,7 +639,6 @@ void display_task(void *param)
     char filename[64];
     char time_buf[256];
     struct stat st;
-    xDisplaySemaphore = xSemaphoreCreateBinary();
 
     for (;;)
     {
@@ -768,6 +779,10 @@ void app_main()
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    xHttpSemaphore = xSemaphoreCreateBinary();
+
+    xDisplaySemaphore = xSemaphoreCreateBinary();
 
     initHardware();
 
