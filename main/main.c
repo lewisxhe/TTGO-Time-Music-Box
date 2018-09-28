@@ -52,6 +52,9 @@
 #include "driver/sdmmc_host.h"
 #include "driver/sdspi_host.h"
 #include "sdmmc_cmd.h"
+/*spiram*/
+#include "esp_heap_caps.h"
+
 
 #define TAG "[main]"
 
@@ -214,8 +217,8 @@ void initHardware(void)
 
     // ===================================================
     // ==== Set display type                         =====
-    tft_disp_type = DEFAULT_DISP_TYPE;
-    //tft_disp_type = DISP_TYPE_ILI9341;
+    // tft_disp_type = DEFAULT_DISP_TYPE;
+    tft_disp_type = DISP_TYPE_ILI9341;
     //tft_disp_type = DISP_TYPE_ILI9488;
     //tft_disp_type = DISP_TYPE_ST7735B;
     // ===================================================
@@ -289,6 +292,7 @@ void initHardware(void)
     TFT_display_init();
     ESP_LOGI(TAG, "OK\r\n");
 
+#if 0
     // ---- Detect maximum read speed ----
     max_rdclock = find_rd_speed();
     ESP_LOGI(TAG, "SPI: Max rd speed = %u\r\n", max_rdclock);
@@ -301,18 +305,18 @@ void initHardware(void)
     ESP_LOGI(TAG, "Graphics demo started\r\n");
     ESP_LOGI(TAG, "---------------------\r\n");
 
+#endif
     font_rotate = 0;
     text_wrap = 0;
     font_transparent = 0;
     font_forceFixed = 0;
     image_debug = 0;
-
     TFT_setGammaCurve(DEFAULT_GAMMA_CURVE);
     TFT_setRotation(LANDSCAPE);
     TFT_setFont(DEFAULT_FONT, NULL);
 
     _fg = TFT_WHITE;
-#if 0
+#if 00
     for (;;)
     {
         TFT_fillScreen(TFT_NAVY);
@@ -343,8 +347,7 @@ void initHardware(void)
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 #endif
-    TFT_print("TTGO T4 Bluetooth player & HTTP Clock", MARGIN_X, MARGIN_Y);
-
+    TFT_print("TTGO T14 Bluetooth player & HTTP Clock", MARGIN_X, MARGIN_Y);
 }
 
 bool obtain_time(void)
@@ -753,6 +756,7 @@ void init_sd_card(void)
     gpio_set_pull_mode(4, GPIO_PULLUP_ONLY);  // D1, needed in 4-line mode only
     gpio_set_pull_mode(12, GPIO_PULLUP_ONLY); // D2, needed in 4-line mode only
     gpio_set_pull_mode(13, GPIO_PULLUP_ONLY); // D3, needed in 4- and 1-line modes
+    // gpio_set_pull_mode(14, GPIO_PULLUP_ONLY); // D3, needed in 4- and 1-line modes
 
 #else
     TFT_print("Using SPI peripheral", MARGIN_X, LASTY + TFT_getfontheight() + 2);
@@ -807,6 +811,7 @@ void init_sd_card(void)
 }
 
 
+
 void app_main()
 {
 
@@ -825,11 +830,11 @@ void app_main()
 
     initHardware();
 
+    init_sd_card();
+
     bt_task_init();
 
     init_wifi();
-
-    init_sd_card();
 
     obtain_time();
 
