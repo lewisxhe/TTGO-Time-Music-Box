@@ -139,6 +139,7 @@ void bt_task_init(void)
 {
     esp_err_t ret = 0;
     i2s_config_t i2s_config = {
+
 #ifdef CONFIG_A2DP_SINK_OUTPUT_INTERNAL_DAC
         .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN,
 #else
@@ -263,42 +264,42 @@ void initHardware(void)
     // ====================================================================================================================
 
     vTaskDelay(500 / portTICK_RATE_MS);
-    ESP_LOGI(TAG,"\r\n==============================\r\n");
-    ESP_LOGI(TAG,"Pins used: miso=%d, mosi=%d, sck=%d, cs=%d\r\n", PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
-    ESP_LOGI(TAG,"==============================\r\n\r\n");
+    ESP_LOGI(TAG, "\r\n==============================\r\n");
+    ESP_LOGI(TAG, "Pins used: miso=%d, mosi=%d, sck=%d, cs=%d\r\n", PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
+    ESP_LOGI(TAG, "==============================\r\n\r\n");
 
     // ==================================================================
     // ==== Initialize the SPI bus and attach the LCD to the SPI bus ====
 
     ESP_ERROR_CHECK(spi_lobo_bus_add_device(SPI_BUS, &buscfg, &devcfg, &spi));
-    ESP_LOGI(TAG,"SPI: display device added to spi bus (%d)\r\n", SPI_BUS);
+    ESP_LOGI(TAG, "SPI: display device added to spi bus (%d)\r\n", SPI_BUS);
     disp_spi = spi;
 
     // ==== Test select/deselect ====
     ESP_ERROR_CHECK(spi_lobo_device_select(spi, 1));
     ESP_ERROR_CHECK(spi_lobo_device_deselect(spi));
 
-    ESP_LOGI(TAG,"SPI: attached display device, speed=%u\r\n", spi_lobo_get_speed(spi));
-    ESP_LOGI(TAG,"SPI: bus uses native pins: %s\r\n", spi_lobo_uses_native_pins(spi) ? "true" : "false");
+    ESP_LOGI(TAG, "SPI: attached display device, speed=%u\r\n", spi_lobo_get_speed(spi));
+    ESP_LOGI(TAG, "SPI: bus uses native pins: %s\r\n", spi_lobo_uses_native_pins(spi) ? "true" : "false");
 
     // ================================
     // ==== Initialize the Display ====
 
-    ESP_LOGI(TAG,"SPI: display init...\r\n");
+    ESP_LOGI(TAG, "SPI: display init...\r\n");
     TFT_display_init();
-    ESP_LOGI(TAG,"OK\r\n");
+    ESP_LOGI(TAG, "OK\r\n");
 
     // ---- Detect maximum read speed ----
     max_rdclock = find_rd_speed();
-    ESP_LOGI(TAG,"SPI: Max rd speed = %u\r\n", max_rdclock);
+    ESP_LOGI(TAG, "SPI: Max rd speed = %u\r\n", max_rdclock);
 
     // ==== Set SPI clock used for display operations ====
     spi_lobo_set_speed(spi, DEFAULT_SPI_CLOCK);
-    ESP_LOGI(TAG,"SPI: Changed speed to %u\r\n", spi_lobo_get_speed(spi));
+    ESP_LOGI(TAG, "SPI: Changed speed to %u\r\n", spi_lobo_get_speed(spi));
 
-    ESP_LOGI(TAG,"\r\n---------------------\r\n");
-    ESP_LOGI(TAG,"Graphics demo started\r\n");
-    ESP_LOGI(TAG,"---------------------\r\n");
+    ESP_LOGI(TAG, "\r\n---------------------\r\n");
+    ESP_LOGI(TAG, "Graphics demo started\r\n");
+    ESP_LOGI(TAG, "---------------------\r\n");
 
     font_rotate = 0;
     text_wrap = 0;
@@ -310,16 +311,46 @@ void initHardware(void)
     TFT_setRotation(LANDSCAPE);
     TFT_setFont(DEFAULT_FONT, NULL);
 
-    _fg = TFT_ORANGE;
+    _fg = TFT_WHITE;
+#if 0
+    for (;;)
+    {
+        TFT_fillScreen(TFT_NAVY);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_BLUE);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_DARKGREEN);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_DARKCYAN);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_MAGENTA);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_MAROON);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_PURPLE);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_OLIVE);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_LIGHTGREY);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_GREEN);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_RED);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_YELLOW);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        TFT_fillScreen(TFT_PINK);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+#endif
     TFT_print("TTGO T4 Bluetooth player & HTTP Clock", MARGIN_X, MARGIN_Y);
 
-    _fg = TFT_BLUE;
 }
 
 bool obtain_time(void)
 {
     char strftime_buf[64];
-    ESP_LOGI(TAG, "Initializing SNTP");
+    TFT_print("Initializing SNTP", MARGIN_X, LASTY + TFT_getfontheight() + 2);
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
     sntp_init();
@@ -329,9 +360,11 @@ bool obtain_time(void)
     // wait for time to be set
     int retry = 0;
     const int retry_count = 10;
+    int16_t x = MARGIN_X, y = LASTY + TFT_getfontheight() + 2;
     while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count)
     {
-        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        snprintf(recv_buf, sizeof(recv_buf), "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        TFT_print(recv_buf, x, y);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
         time(&now);
         localtime_r(&now, &timeinfo);
@@ -339,7 +372,8 @@ bool obtain_time(void)
 
     if (timeinfo.tm_year < (2016 - 1900))
     {
-        ESP_LOGI(TAG, "System time NOT set.");
+        TFT_print("System time NOT set. Restart now . ", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
         esp_restart();
         return false;
     }
@@ -348,7 +382,8 @@ bool obtain_time(void)
     tzset();
     localtime_r(&now, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    ESP_LOGI(TAG, "The current date/time in Shanghai is: %s", strftime_buf);
+    snprintf(recv_buf, sizeof(recv_buf), "The current date/time in Shanghai is: %s", strftime_buf);
+    TFT_print(strftime_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
     return true;
 }
 
@@ -394,14 +429,16 @@ bool request_image(uint8_t hours, uint8_t mintues)
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
     // APP_ERROR_CHECK(fd < 0, "Create socket fail", goto ERR0);
-    if(fd  < 0){
+    if (fd < 0)
+    {
         static uint8_t failCount = 0;
-        if(failCount++ > 5){
+        if (failCount++ > 5)
+        {
             esp_restart();
         }
         perror("Create socket : ");
         goto ERR0;
-    }  
+    }
 
     ESP_LOGI(TAG, "fd : %d", fd);
 
@@ -409,7 +446,8 @@ bool request_image(uint8_t hours, uint8_t mintues)
 
     ret = connect(fd, (struct sockaddr *)&add, sizeof(add));
     // APP_ERROR_CHECK(ret < 0, "Connect host fail", goto ERR1);
-    if(ret == -1){
+    if (ret == -1)
+    {
         perror("Create socket : ");
         goto ERR1;
     }
@@ -768,6 +806,7 @@ void init_sd_card(void)
     sdmmc_card_print_info(stdout, card);
 }
 
+
 void app_main()
 {
 
@@ -786,13 +825,13 @@ void app_main()
 
     initHardware();
 
+    bt_task_init();
+
     init_wifi();
 
     init_sd_card();
 
     obtain_time();
-
-    bt_task_init();
 
     xTimer = xTimerCreate("http_timer",
                           1000 / portTICK_PERIOD_MS,
