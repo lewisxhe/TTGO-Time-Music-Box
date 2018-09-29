@@ -38,10 +38,12 @@ static const char *m_a2d_audio_state_str[] = {"Suspended", "Stopped", "Started"}
 /* callback for A2DP sink */
 void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
 {
-    switch (event) {
+    switch (event)
+    {
     case ESP_A2D_CONNECTION_STATE_EVT:
     case ESP_A2D_AUDIO_STATE_EVT:
-    case ESP_A2D_AUDIO_CFG_EVT: {
+    case ESP_A2D_AUDIO_CFG_EVT:
+    {
         bt_app_work_dispatch(bt_av_hdl_a2d_evt, event, param, sizeof(esp_a2d_cb_param_t), NULL);
         break;
     }
@@ -55,7 +57,7 @@ void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
 {
     size_t bytes_written;
     i2s_write(0, data, len, &bytes_written, portMAX_DELAY);
-    //disable fast 
+    //disable fast
     // if (++m_pkt_cnt % 100 == 0) {
     //     ESP_LOGI(BT_AV_TAG, "Audio packet count %u", m_pkt_cnt);
     // }
@@ -64,7 +66,7 @@ void bt_app_a2d_data_cb(const uint8_t *data, uint32_t len)
 void bt_app_alloc_meta_buffer(esp_avrc_ct_cb_param_t *param)
 {
     esp_avrc_ct_cb_param_t *rc = (esp_avrc_ct_cb_param_t *)(param);
-    uint8_t *attr_text = (uint8_t *) malloc (rc->meta_rsp.attr_length + 1);
+    uint8_t *attr_text = (uint8_t *)malloc(rc->meta_rsp.attr_length + 1);
     memcpy(attr_text, rc->meta_rsp.attr_text, rc->meta_rsp.attr_length);
     attr_text[rc->meta_rsp.attr_length] = 0;
 
@@ -73,13 +75,15 @@ void bt_app_alloc_meta_buffer(esp_avrc_ct_cb_param_t *param)
 
 void bt_app_rc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
 {
-    switch (event) {
+    switch (event)
+    {
     case ESP_AVRC_CT_METADATA_RSP_EVT:
         bt_app_alloc_meta_buffer(param);
     case ESP_AVRC_CT_CONNECTION_STATE_EVT:
     case ESP_AVRC_CT_PASSTHROUGH_RSP_EVT:
     case ESP_AVRC_CT_CHANGE_NOTIFY_EVT:
-    case ESP_AVRC_CT_REMOTE_FEATURES_EVT: {
+    case ESP_AVRC_CT_REMOTE_FEATURES_EVT:
+    {
         bt_app_work_dispatch(bt_av_hdl_avrc_evt, event, param, sizeof(esp_avrc_ct_cb_param_t), NULL);
         break;
     }
@@ -93,40 +97,58 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
 {
     ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
     esp_a2d_cb_param_t *a2d = NULL;
-    switch (event) {
-    case ESP_A2D_CONNECTION_STATE_EVT: {
+    switch (event)
+    {
+    case ESP_A2D_CONNECTION_STATE_EVT:
+    {
         a2d = (esp_a2d_cb_param_t *)(p_param);
         uint8_t *bda = a2d->conn_stat.remote_bda;
         ESP_LOGI(BT_AV_TAG, "A2DP connection state: %s, [%02x:%02x:%02x:%02x:%02x:%02x]",
-             m_a2d_conn_state_str[a2d->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
-        if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
+                 m_a2d_conn_state_str[a2d->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
+        if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED)
+        {
+            // ESP_LOGI(BT_AV_TAG, "i2s_stop");
+            // i2s_stop(0);
             esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
-        } else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED){
+        }
+        else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED)
+        {
+            // ESP_LOGI(BT_AV_TAG, "i2s_start");
+            // i2s_start(0);
             esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_NONE);
         }
         break;
     }
-    case ESP_A2D_AUDIO_STATE_EVT: {
+    case ESP_A2D_AUDIO_STATE_EVT:
+    {
         a2d = (esp_a2d_cb_param_t *)(p_param);
         ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", m_a2d_audio_state_str[a2d->audio_stat.state]);
         m_audio_state = a2d->audio_stat.state;
-        if (ESP_A2D_AUDIO_STATE_STARTED == a2d->audio_stat.state) {
+        if (ESP_A2D_AUDIO_STATE_STARTED == a2d->audio_stat.state)
+        {
             m_pkt_cnt = 0;
         }
         break;
     }
-    case ESP_A2D_AUDIO_CFG_EVT: {
+    case ESP_A2D_AUDIO_CFG_EVT:
+    {
         a2d = (esp_a2d_cb_param_t *)(p_param);
         ESP_LOGI(BT_AV_TAG, "A2DP audio stream configuration, codec type %d", a2d->audio_cfg.mcc.type);
         // for now only SBC stream is supported
-        if (a2d->audio_cfg.mcc.type == ESP_A2D_MCT_SBC) {
+        if (a2d->audio_cfg.mcc.type == ESP_A2D_MCT_SBC)
+        {
             int sample_rate = 16000;
             char oct0 = a2d->audio_cfg.mcc.cie.sbc[0];
-            if (oct0 & (0x01 << 6)) {
+            if (oct0 & (0x01 << 6))
+            {
                 sample_rate = 32000;
-            } else if (oct0 & (0x01 << 5)) {
+            }
+            else if (oct0 & (0x01 << 5))
+            {
                 sample_rate = 44100;
-            } else if (oct0 & (0x01 << 4)) {
+            }
+            else if (oct0 & (0x01 << 4))
+            {
                 sample_rate = 48000;
             }
             i2s_set_clk(0, sample_rate, 16, 2);
@@ -155,7 +177,8 @@ static void bt_av_new_track()
 
 void bt_av_notify_evt_handler(uint8_t event_id, uint32_t event_parameter)
 {
-    switch (event_id) {
+    switch (event_id)
+    {
     case ESP_AVRC_RN_TRACK_CHANGE:
         bt_av_new_track();
         break;
@@ -166,36 +189,43 @@ static void bt_av_hdl_avrc_evt(uint16_t event, void *p_param)
 {
     ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
     esp_avrc_ct_cb_param_t *rc = (esp_avrc_ct_cb_param_t *)(p_param);
-    switch (event) {
-    case ESP_AVRC_CT_CONNECTION_STATE_EVT: {
+    switch (event)
+    {
+    case ESP_AVRC_CT_CONNECTION_STATE_EVT:
+    {
         uint8_t *bda = rc->conn_stat.remote_bda;
         ESP_LOGI(BT_AV_TAG, "AVRC conn_state evt: state %d, [%02x:%02x:%02x:%02x:%02x:%02x]",
                  rc->conn_stat.connected, bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
 
-        if (rc->conn_stat.connected) {
+        if (rc->conn_stat.connected)
+        {
             bt_av_new_track();
         }
         break;
     }
-    case ESP_AVRC_CT_PASSTHROUGH_RSP_EVT: {
+    case ESP_AVRC_CT_PASSTHROUGH_RSP_EVT:
+    {
         ESP_LOGI(BT_AV_TAG, "AVRC passthrough rsp: key_code 0x%x, key_state %d", rc->psth_rsp.key_code, rc->psth_rsp.key_state);
         break;
     }
-    case ESP_AVRC_CT_METADATA_RSP_EVT: {
+    case ESP_AVRC_CT_METADATA_RSP_EVT:
+    {
         // show music name and othre info
         // 0x01 music name
-        // 0x02 singer 
+        // 0x02 singer
         // 0x03 Album
         ESP_LOGI(BT_AV_TAG, "AVRC metadata rsp: attribute id 0x%x, %s", rc->meta_rsp.attr_id, rc->meta_rsp.attr_text);
         free(rc->meta_rsp.attr_text);
         break;
     }
-    case ESP_AVRC_CT_CHANGE_NOTIFY_EVT: {
+    case ESP_AVRC_CT_CHANGE_NOTIFY_EVT:
+    {
         ESP_LOGI(BT_AV_TAG, "AVRC event notification: %d, param: %d", rc->change_ntf.event_id, rc->change_ntf.event_parameter);
         bt_av_notify_evt_handler(rc->change_ntf.event_id, rc->change_ntf.event_parameter);
         break;
     }
-    case ESP_AVRC_CT_REMOTE_FEATURES_EVT: {
+    case ESP_AVRC_CT_REMOTE_FEATURES_EVT:
+    {
         ESP_LOGI(BT_AV_TAG, "AVRC remote features %x", rc->rmt_feats.feat_mask);
         break;
     }

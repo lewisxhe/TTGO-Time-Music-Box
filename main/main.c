@@ -55,6 +55,9 @@
 /*spiram*/
 #include "esp_heap_caps.h"
 
+#include "hal_i2c.h"
+#include "wm8978.h"
+#include "board.h"
 
 #define TAG "[main]"
 
@@ -110,6 +113,7 @@ enum
 /* handler for bluetooth stack enabled events */
 static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
 {
+
     ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
     switch (event)
     {
@@ -138,16 +142,10 @@ static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
     }
 }
 
-void bt_task_init(void)
+void i2s_init(void)
 {
-    esp_err_t ret = 0;
     i2s_config_t i2s_config = {
-
-#ifdef CONFIG_A2DP_SINK_OUTPUT_INTERNAL_DAC
-        .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN,
-#else
         .mode = I2S_MODE_MASTER | I2S_MODE_TX, // Only TX
-#endif
         .sample_rate = 44100,
         .bits_per_sample = 16,
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT, //2-channels
@@ -158,48 +156,29 @@ void bt_task_init(void)
     };
 
     i2s_driver_install(0, &i2s_config, 0, NULL);
-#ifdef CONFIG_A2DP_SINK_OUTPUT_INTERNAL_DAC
-    i2s_set_dac_mode(I2S_DAC_CHANNEL_BOTH_EN);
-    i2s_set_pin(0, NULL);
-#else
+
     i2s_pin_config_t pin_config = {
-        .bck_io_num = CONFIG_I2S_BCK_PIN,
-        .ws_io_num = CONFIG_I2S_LRCK_PIN,
-        .data_out_num = CONFIG_I2S_DATA_PIN,
-        .data_in_num = -1 //Not used
-    };
+        .bck_io_num = IIS_BCK,
+        .ws_io_num = IIS_LRCK,
+        .data_out_num = IIS_DOUT,
+        .data_in_num = IIS_DSIN};
 
     i2s_set_pin(0, &pin_config);
+
+#ifdef CONFIG_TTGO_T9_BOARD
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_CLK_OUT1);
+    REG_WRITE(PIN_CTRL, 0xFFFFFFF0);
 #endif
+}
 
-    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
-
-    esp_err_t err;
+void bt_task_init(void)
+{
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    if ((err = esp_bt_controller_init(&bt_cfg)) != ESP_OK)
-    {
-        ESP_LOGE(BT_AV_TAG, "%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
-
-    if ((err = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)) != ESP_OK)
-    {
-        ESP_LOGE(BT_AV_TAG, "%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
-
-    if ((err = esp_bluedroid_init()) != ESP_OK)
-    {
-        ESP_LOGE(BT_AV_TAG, "%s initialize bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
-
-    if ((err = esp_bluedroid_enable()) != ESP_OK)
-    {
-        ESP_LOGE(BT_AV_TAG, "%s enable bluedroid failed: %s\n", __func__, esp_err_to_name(ret));
-        return;
-    }
-
+    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
+    ESP_ERROR_CHECK(esp_bt_controller_init(&bt_cfg))
+    ESP_ERROR_CHECK(esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT));
+    ESP_ERROR_CHECK(esp_bluedroid_init());
+    ESP_ERROR_CHECK(esp_bluedroid_enable());
     /* create application task */
     bt_app_task_start_up();
 
@@ -209,40 +188,10 @@ void bt_task_init(void)
 
 void initHardware(void)
 {
-    // static char tmp_buf[64]; // buffer for formating TFT display string
-
-    // ========  PREPARE DISPLAY INITIALIZATION  =========
-
-    // === SET GLOBAL VARIABLES ==========================
-
-    // ===================================================
-    // ==== Set display type                         =====
-    // tft_disp_type = DEFAULT_DISP_TYPE;
     tft_disp_type = DISP_TYPE_ILI9341;
-    //tft_disp_type = DISP_TYPE_ILI9488;
-    //tft_disp_type = DISP_TYPE_ST7735B;
-    // ===================================================
-
-    // ===================================================
-    // === Set display resolution if NOT using default ===
-    // === DEFAULT_TFT_DISPLAY_WIDTH &                 ===
-    // === DEFAULT_TFT_DISPLAY_HEIGHT                  ===
     _width = DEFAULT_TFT_DISPLAY_WIDTH;   // smaller dimension
     _height = DEFAULT_TFT_DISPLAY_HEIGHT; // larger dimension
-    //_width = 128;  // smaller dimension
-    //_height = 160; // larger dimension
-    // ===================================================
-
-    // ===================================================
-    // ==== Set maximum spi clock for display read    ====
-    //      operations, function 'find_rd_speed()'    ====
-    //      can be used after display initialization  ====
     max_rdclock = 8000000;
-    // ===================================================
-
-    // ====================================================================
-    // === Pins MUST be initialized before SPI interface initialization ===
-    // ====================================================================
     TFT_PinsInit();
 
     // ====  CONFIGURE SPI DEVICES(s)  ====================================================================================
@@ -250,9 +199,9 @@ void initHardware(void)
     spi_lobo_device_handle_t spi;
 
     spi_lobo_bus_config_t buscfg = {
-        .miso_io_num = PIN_NUM_MISO, // set SPI MISO pin
-        .mosi_io_num = PIN_NUM_MOSI, // set SPI MOSI pin
-        .sclk_io_num = PIN_NUM_CLK,  // set SPI CLK pin
+        .miso_io_num = TFT_SPI_MISO, //PIN_NUM_MISO, // set SPI MISO pin
+        .mosi_io_num = TFT_SPI_MOSI, //PIN_NUM_MOSI, // set SPI MOSI pin
+        .sclk_io_num = TFT_SPI_SCLK, //PIN_NUM_CLK,  // set SPI CLK pin
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
         .max_transfer_sz = 6 * 1024,
@@ -260,19 +209,9 @@ void initHardware(void)
     spi_lobo_device_interface_config_t devcfg = {
         .clock_speed_hz = 8000000,         // Initial clock out at 8 MHz
         .mode = 0,                         // SPI mode 0
-        .spics_io_num = PIN_NUM_CS,        // set SPI CS pin
+        .spics_io_num = TFT_SPI_CS,        //PIN_NUM_CS,        // set SPI CS pin
         .flags = LB_SPI_DEVICE_HALFDUPLEX, // ALWAYS SET  to HALF DUPLEX MODE!! for display spi
     };
-
-    // ====================================================================================================================
-
-    vTaskDelay(500 / portTICK_RATE_MS);
-    ESP_LOGI(TAG, "\r\n==============================\r\n");
-    ESP_LOGI(TAG, "Pins used: miso=%d, mosi=%d, sck=%d, cs=%d\r\n", PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
-    ESP_LOGI(TAG, "==============================\r\n\r\n");
-
-    // ==================================================================
-    // ==== Initialize the SPI bus and attach the LCD to the SPI bus ====
 
     ESP_ERROR_CHECK(spi_lobo_bus_add_device(SPI_BUS, &buscfg, &devcfg, &spi));
     ESP_LOGI(TAG, "SPI: display device added to spi bus (%d)\r\n", SPI_BUS);
@@ -287,7 +226,6 @@ void initHardware(void)
 
     // ================================
     // ==== Initialize the Display ====
-
     ESP_LOGI(TAG, "SPI: display init...\r\n");
     TFT_display_init();
     ESP_LOGI(TAG, "OK\r\n");
@@ -304,8 +242,8 @@ void initHardware(void)
     ESP_LOGI(TAG, "\r\n---------------------\r\n");
     ESP_LOGI(TAG, "Graphics demo started\r\n");
     ESP_LOGI(TAG, "---------------------\r\n");
-
 #endif
+
     font_rotate = 0;
     text_wrap = 0;
     font_transparent = 0;
@@ -316,37 +254,7 @@ void initHardware(void)
     TFT_setFont(DEFAULT_FONT, NULL);
 
     _fg = TFT_WHITE;
-#if 00
-    for (;;)
-    {
-        TFT_fillScreen(TFT_NAVY);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_BLUE);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_DARKGREEN);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_DARKCYAN);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_MAGENTA);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_MAROON);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_PURPLE);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_OLIVE);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_LIGHTGREY);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_GREEN);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_RED);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_YELLOW);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        TFT_fillScreen(TFT_PINK);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-#endif
+
     TFT_print("TTGO T14 Bluetooth player & HTTP Clock", MARGIN_X, MARGIN_Y);
 }
 
@@ -549,26 +457,8 @@ bool request_image(uint8_t hours, uint8_t mintues)
     {
         if ((ret = recv(fd, recv_buf, sizeof(recv_buf), 0)) == -1)
         {
-            if (errno == EWOULDBLOCK || errno == EAGAIN)
-            {
-                ESP_LOGI(TAG, "recv timeout ...\n");
-                goto ERR2;
-            }
-            else if (errno == EINTR)
-            {
-                ESP_LOGI(TAG, "interrupt by signal...\n");
-                continue;
-            }
-            else if (errno == ENOENT)
-            {
-                ESP_LOGI(TAG, "recv RST segement...\n");
-                goto ERR2;
-            }
-            else
-            {
-                ESP_LOGI(TAG, "unknown error!\n");
-                goto ERR2;
-            }
+            perror("recv:");
+            goto ERR2;
         }
         else if (ret == 0)
         {
@@ -579,6 +469,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
         {
             file_size += fwrite(recv_buf, 1, ret, f);
         }
+        
         if (file_size == length)
         {
             break;
@@ -730,61 +621,86 @@ void display_task(void *param)
     }
 }
 
-void init_sd_card(void)
+esp_err_t init_sd_card(void)
 {
-
-    TFT_print("Initializing SD card", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-
-#ifndef USE_SPI_MODE
-
-    TFT_print("Using SDMMC peripheral", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-
+    esp_err_t ret;
+    sdmmc_card_t *card = NULL;
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-
-    // To use 1-line SD mode, uncomment the following line:
-    // host.flags = SDMMC_HOST_FLAG_1BIT;
-
-    // This initializes the slot without card detect (CD) and write protect (WP) signals.
-    // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    gpio_set_pull_mode(SDCARD_CMD, GPIO_PULLUP_ONLY); // CMD, needed in 4- and 1- line modes
+    gpio_set_pull_mode(SDCARD_D0, GPIO_PULLUP_ONLY);  // D0, needed in 4- and 1-line modes
+    gpio_set_pull_mode(SDCARD_D1, GPIO_PULLUP_ONLY);  // D1, needed in 4-line mode only
+    gpio_set_pull_mode(SDCARD_D2, GPIO_PULLUP_ONLY);  // D2, needed in 4-line mode only
+    gpio_set_pull_mode(SDCARD_D3, GPIO_PULLUP_ONLY);  // D3, needed in 4- and 1-line modes
 
-    // GPIOs 15, 2, 4, 12, 13 should have external 10k pull-ups.
-    // Internal pull-ups are not sufficient. However, enabling internal pull-ups
-    // does make a difference some boards, so we do that here.
-    gpio_set_pull_mode(15, GPIO_PULLUP_ONLY); // CMD, needed in 4- and 1- line modes
-    gpio_set_pull_mode(2, GPIO_PULLUP_ONLY);  // D0, needed in 4- and 1-line modes
-    gpio_set_pull_mode(4, GPIO_PULLUP_ONLY);  // D1, needed in 4-line mode only
-    gpio_set_pull_mode(12, GPIO_PULLUP_ONLY); // D2, needed in 4-line mode only
-    gpio_set_pull_mode(13, GPIO_PULLUP_ONLY); // D3, needed in 4- and 1-line modes
-    // gpio_set_pull_mode(14, GPIO_PULLUP_ONLY); // D3, needed in 4- and 1-line modes
-
-#else
-    TFT_print("Using SPI peripheral", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    sdspi_slot_config_t slot_config = SDSPI_SLOT_CONFIG_DEFAULT();
-    slot_config.gpio_miso = PIN_NUM_MISO;
-    slot_config.gpio_mosi = PIN_NUM_MOSI;
-    slot_config.gpio_sck = PIN_NUM_CLK;
-    slot_config.gpio_cs = PIN_NUM_CS;
-    // This initializes the slot without card detect (CD) and write protect (WP) signals.
-    // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
-#endif //USE_SPI_MODE
-
-    // Options for mounting the filesystem.
-    // If format_if_mount_failed is set to true, SD card will be partitioned and
-    // formatted in case when mounting fails.
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
         .max_files = 5,
         .allocation_unit_size = 16 * 1024};
 
-    // Use settings defined above to initialize SD card and mount FAT filesystem.
-    // Note: esp_vfs_fat_sdmmc_mount is an all-in-one convenience function.
-    // Please check its source code and implement error recovery when developing
-    // production applications.
-    sdmmc_card_t *card;
-    esp_err_t ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card);
+    ret = esp_vfs_fat_sdmmc_mount(SD_ROOT, &host, &slot_config, &mount_config, &card);
+
+    return ret;
+}
+
+void app_main()
+{
+
+    /* Initialize NVS — it is used to store PHY calibration data */
+    esp_err_t ret = nvs_flash_init();
+
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESP_ERROR_CHECK(nvs_flash_init());
+    }
+
+    xHttpSemaphore = xSemaphoreCreateBinary();
+
+    xDisplaySemaphore = xSemaphoreCreateBinary();
+
+    // ====================================================================
+    // === initialization i2s interface                                 ===
+    // ====================================================================
+    i2s_init();
+
+#ifdef CONFIG_TTGO_T9_BOARD
+    hal_i2c_init(0, IIC_SDA, IIC_CLK);
+
+    WM8978_Init();
+
+    WM8978_ADDA_Cfg(1, 0);
+
+    // WM8978_Input_Cfg(1, 0, 0);
+
+    WM8978_Output_Cfg(1, 0);
+
+    // WM8978_MIC_Gain(25);
+
+    // WM8978_AUX_Gain(0);
+
+    // WM8978_LINEIN_Gain(0);
+
+    // WM8978_SPKvol_Set(0);
+
+    WM8978_HPvol_Set(100, 100);
+    // WM8978_EQ_3D_Dir(0);
+    // WM8978_EQ1_Set(0, 24);
+    // WM8978_EQ2_Set(0, 24);
+    // WM8978_EQ3_Set(0, 24);
+    // WM8978_EQ4_Set(0, 24);
+    // WM8978_EQ5_Set(0, 24);
+
+#else
+
+    initHardware();
+
+    // ====================================================================
+    // === initialization sdcard                                        ===
+    // ====================================================================
+    TFT_print("Initializing SD card", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+
+    ret = init_sd_card();
 
     if (ret != ESP_OK)
     {
@@ -797,7 +713,6 @@ void init_sd_card(void)
         {
             snprintf(recv_buf, sizeof(recv_buf), "Failed to initialize the card (%s). ", esp_err_to_name(ret));
             TFT_print(recv_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
-            TFT_print("Make sure SD card lines have pull-up resistors in place.", MARGIN_X, LASTY + TFT_getfontheight() + 2);
         }
 
         for (;;)
@@ -805,34 +720,6 @@ void init_sd_card(void)
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     }
-
-    // Card has been initialized, print its properties
-    sdmmc_card_print_info(stdout, card);
-}
-
-
-
-void app_main()
-{
-
-    /* Initialize NVS — it is used to store PHY calibration data */
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
-    {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-
-    xHttpSemaphore = xSemaphoreCreateBinary();
-
-    xDisplaySemaphore = xSemaphoreCreateBinary();
-
-    initHardware();
-
-    init_sd_card();
-
-    bt_task_init();
 
     init_wifi();
 
@@ -851,4 +738,6 @@ void app_main()
     xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
 
     xTimerStart(xTimer, 100);
+#endif
+    bt_task_init();
 }
