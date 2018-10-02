@@ -67,7 +67,8 @@
 #define BIJINT_SERVER "www.bijint.com"
 #define BIJINT_PORT 80
 #define HTTP_REQUEST_RETRY_COUNT 5
-
+#define MAIN_X 10
+#define MAIN_Y 10
 // // ==========================================================
 // // Define which spi bus to use TFT_VSPI_HOST or TFT_HSPI_HOST
 // #define SPI_BUS TFT_VSPI_HOST
@@ -184,7 +185,6 @@ void bt_task_init(void)
 bool obtain_time(void)
 {
     char strftime_buf[64];
-    // TFT_print("Initializing SNTP", MARGIN_X, LASTY + TFT_getfontheight() + 2);
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
     sntp_init();
@@ -194,11 +194,11 @@ bool obtain_time(void)
     // wait for time to be set
     int retry = 0;
     const int retry_count = 10;
-    // int16_t x = MARGIN_X, y = LASTY + TFT_getfontheight() + 2;
+    int16_t x = MAIN_X, y = LASTY + TFT_getfontheight() + 2;
     while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count)
     {
-        // snprintf(recv_buf, sizeof(recv_buf), "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-        // TFT_print(recv_buf, x, y);
+        snprintf(recv_buf, sizeof(recv_buf), "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        TFT_print(recv_buf, x, y);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
         time(&now);
         localtime_r(&now, &timeinfo);
@@ -206,8 +206,8 @@ bool obtain_time(void)
 
     if (timeinfo.tm_year < (2016 - 1900))
     {
-        // TFT_print("System time NOT set. Restart now . ", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-        // vTaskDelay(2000 / portTICK_PERIOD_MS);
+        TFT_print("System time NOT set. Restart now . ", x, y);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
         esp_restart();
         return false;
     }
@@ -217,7 +217,7 @@ bool obtain_time(void)
     localtime_r(&now, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
     snprintf(recv_buf, sizeof(recv_buf), "The current date/time in Shanghai is: %s", strftime_buf);
-    // TFT_print(strftime_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
+    TFT_print(strftime_buf, x, y);
     return true;
 }
 
@@ -525,9 +525,6 @@ esp_err_t sd_card_init(void)
 
     return esp_vfs_fat_sdmmc_mount(SD_ROOT, &host, &slot_config, &mount_config, &card);
 }
-
-#define MAIN_X 10
-#define MAIN_Y 10
 
 void app_main()
 {
