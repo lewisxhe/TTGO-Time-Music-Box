@@ -16,7 +16,7 @@ extern "C" {
 /* I2S gpios */
 #define IIS_DOUT                    GPIO_NUM_32
 #define IIS_LRCK                    GPIO_NUM_25
-#define IIS_BCK                    GPIO_NUM_26
+#define IIS_BCK                     GPIO_NUM_26
 #define IIS_DSIN                    -1
 #define IIS_SCLK                    -1
 

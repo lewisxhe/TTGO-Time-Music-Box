@@ -58,31 +58,22 @@
 #include "hal_i2c.h"
 #include "wm8978.h"
 #include "board.h"
+#include "merror.h"
 
+#include "display.h"
 #define TAG "[main]"
-
-// ets_printf("err_code : %d file: \"%s\" line %d\nfunc: %s\nexpression: %s\ninfo:%s\n", code, __FILE__, __LINE__, __ASSERT_FUNC, info);
-#define APP_ERROR_CHECK(code, info, go)                                                                 \
-    do                                                                                                  \
-    {                                                                                                   \
-        if (code)                                                                                       \
-        {                                                                                               \
-            ets_printf("err_code : %d file: \"%s\" line %d info:%s\n", code, __FILE__, __LINE__, info); \
-            go;                                                                                         \
-        }                                                                                               \
-    } while (0)
 
 #define SD_ROOT "/sdcard"
 #define BIJINT_SERVER "www.bijint.com"
 #define BIJINT_PORT 80
 #define HTTP_REQUEST_RETRY_COUNT 5
 
-// ==========================================================
-// Define which spi bus to use TFT_VSPI_HOST or TFT_HSPI_HOST
-#define SPI_BUS TFT_VSPI_HOST
-// ==========================================================
-#define MARGIN_X 12
-#define MARGIN_Y 12
+// // ==========================================================
+// // Define which spi bus to use TFT_VSPI_HOST or TFT_HSPI_HOST
+// #define SPI_BUS TFT_VSPI_HOST
+// // ==========================================================
+// #define MARGIN_X 12
+// #define MARGIN_Y 12
 
 static char http_buf[1024];
 static const char *HTTP_REQUEST =
@@ -113,7 +104,6 @@ enum
 /* handler for bluetooth stack enabled events */
 static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
 {
-
     ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
     switch (event)
     {
@@ -142,8 +132,9 @@ static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
     }
 }
 
-void i2s_init(void)
+esp_err_t i2s_init(void)
 {
+    esp_err_t ret;
     i2s_config_t i2s_config = {
         .mode = I2S_MODE_MASTER | I2S_MODE_TX, // Only TX
         .sample_rate = 44100,
@@ -155,7 +146,9 @@ void i2s_init(void)
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1 //Interrupt level 1
     };
 
-    i2s_driver_install(0, &i2s_config, 0, NULL);
+    ret = i2s_driver_install(0, &i2s_config, 0, NULL);
+    if (ret != ESP_OK)
+        return ret;
 
     i2s_pin_config_t pin_config = {
         .bck_io_num = IIS_BCK,
@@ -163,12 +156,15 @@ void i2s_init(void)
         .data_out_num = IIS_DOUT,
         .data_in_num = IIS_DSIN};
 
-    i2s_set_pin(0, &pin_config);
+    ret = i2s_set_pin(0, &pin_config);
+    if (ret != ESP_OK)
+        return ret;
 
 #ifdef CONFIG_TTGO_T9_BOARD
     PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_CLK_OUT1);
     REG_WRITE(PIN_CTRL, 0xFFFFFFF0);
 #endif
+    return ret;
 }
 
 void bt_task_init(void)
@@ -181,87 +177,14 @@ void bt_task_init(void)
     ESP_ERROR_CHECK(esp_bluedroid_enable());
     /* create application task */
     bt_app_task_start_up();
-
     /* Bluetooth device name, connection mode and profile set up */
     bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL);
-}
-
-void initHardware(void)
-{
-    tft_disp_type = DISP_TYPE_ILI9341;
-    _width = DEFAULT_TFT_DISPLAY_WIDTH;   // smaller dimension
-    _height = DEFAULT_TFT_DISPLAY_HEIGHT; // larger dimension
-    max_rdclock = 8000000;
-    TFT_PinsInit();
-
-    // ====  CONFIGURE SPI DEVICES(s)  ====================================================================================
-
-    spi_lobo_device_handle_t spi;
-
-    spi_lobo_bus_config_t buscfg = {
-        .miso_io_num = TFT_SPI_MISO, //PIN_NUM_MISO, // set SPI MISO pin
-        .mosi_io_num = TFT_SPI_MOSI, //PIN_NUM_MOSI, // set SPI MOSI pin
-        .sclk_io_num = TFT_SPI_SCLK, //PIN_NUM_CLK,  // set SPI CLK pin
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 6 * 1024,
-    };
-    spi_lobo_device_interface_config_t devcfg = {
-        .clock_speed_hz = 8000000,         // Initial clock out at 8 MHz
-        .mode = 0,                         // SPI mode 0
-        .spics_io_num = TFT_SPI_CS,        //PIN_NUM_CS,        // set SPI CS pin
-        .flags = LB_SPI_DEVICE_HALFDUPLEX, // ALWAYS SET  to HALF DUPLEX MODE!! for display spi
-    };
-
-    ESP_ERROR_CHECK(spi_lobo_bus_add_device(SPI_BUS, &buscfg, &devcfg, &spi));
-    ESP_LOGI(TAG, "SPI: display device added to spi bus (%d)\r\n", SPI_BUS);
-    disp_spi = spi;
-
-    // ==== Test select/deselect ====
-    ESP_ERROR_CHECK(spi_lobo_device_select(spi, 1));
-    ESP_ERROR_CHECK(spi_lobo_device_deselect(spi));
-
-    ESP_LOGI(TAG, "SPI: attached display device, speed=%u\r\n", spi_lobo_get_speed(spi));
-    ESP_LOGI(TAG, "SPI: bus uses native pins: %s\r\n", spi_lobo_uses_native_pins(spi) ? "true" : "false");
-
-    // ================================
-    // ==== Initialize the Display ====
-    ESP_LOGI(TAG, "SPI: display init...\r\n");
-    TFT_display_init();
-    ESP_LOGI(TAG, "OK\r\n");
-
-#if 0
-    // ---- Detect maximum read speed ----
-    max_rdclock = find_rd_speed();
-    ESP_LOGI(TAG, "SPI: Max rd speed = %u\r\n", max_rdclock);
-
-    // ==== Set SPI clock used for display operations ====
-    spi_lobo_set_speed(spi, DEFAULT_SPI_CLOCK);
-    ESP_LOGI(TAG, "SPI: Changed speed to %u\r\n", spi_lobo_get_speed(spi));
-
-    ESP_LOGI(TAG, "\r\n---------------------\r\n");
-    ESP_LOGI(TAG, "Graphics demo started\r\n");
-    ESP_LOGI(TAG, "---------------------\r\n");
-#endif
-
-    font_rotate = 0;
-    text_wrap = 0;
-    font_transparent = 0;
-    font_forceFixed = 0;
-    image_debug = 0;
-    TFT_setGammaCurve(DEFAULT_GAMMA_CURVE);
-    TFT_setRotation(LANDSCAPE);
-    TFT_setFont(DEFAULT_FONT, NULL);
-
-    _fg = TFT_WHITE;
-
-    TFT_print("TTGO T14 Bluetooth player & HTTP Clock", MARGIN_X, MARGIN_Y);
 }
 
 bool obtain_time(void)
 {
     char strftime_buf[64];
-    TFT_print("Initializing SNTP", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+    // TFT_print("Initializing SNTP", MARGIN_X, LASTY + TFT_getfontheight() + 2);
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
     sntp_init();
@@ -271,11 +194,11 @@ bool obtain_time(void)
     // wait for time to be set
     int retry = 0;
     const int retry_count = 10;
-    int16_t x = MARGIN_X, y = LASTY + TFT_getfontheight() + 2;
+    // int16_t x = MARGIN_X, y = LASTY + TFT_getfontheight() + 2;
     while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count)
     {
-        snprintf(recv_buf, sizeof(recv_buf), "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-        TFT_print(recv_buf, x, y);
+        // snprintf(recv_buf, sizeof(recv_buf), "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        // TFT_print(recv_buf, x, y);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
         time(&now);
         localtime_r(&now, &timeinfo);
@@ -283,8 +206,8 @@ bool obtain_time(void)
 
     if (timeinfo.tm_year < (2016 - 1900))
     {
-        TFT_print("System time NOT set. Restart now . ", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
+        // TFT_print("System time NOT set. Restart now . ", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+        // vTaskDelay(2000 / portTICK_PERIOD_MS);
         esp_restart();
         return false;
     }
@@ -294,7 +217,7 @@ bool obtain_time(void)
     localtime_r(&now, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
     snprintf(recv_buf, sizeof(recv_buf), "The current date/time in Shanghai is: %s", strftime_buf);
-    TFT_print(strftime_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
+    // TFT_print(strftime_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
     return true;
 }
 
@@ -469,7 +392,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
         {
             file_size += fwrite(recv_buf, 1, ret, f);
         }
-        
+
         if (file_size == length)
         {
             break;
@@ -485,9 +408,6 @@ bool request_image(uint8_t hours, uint8_t mintues)
     ESP_LOGI(TAG, " file_size : %u", file_size);
     fclose(f);
 #endif
-
-    // TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
-    // TFT_jpg_image(CENTER, CENTER, 1, fd, NULL, NULL, 0);
     close(fd);
     ESP_LOGI(TAG, "Close fd: %d", fd);
     return true;
@@ -566,65 +486,14 @@ void http_task(void *param)
     }
 }
 
-void display_task(void *param)
-{
-    char filename[64];
-    char time_buf[256];
-    struct stat st;
+#define USE_SPI_MODE
 
-    for (;;)
-    {
-        if (xSemaphoreTake(xDisplaySemaphore, portMAX_DELAY) == pdTRUE)
-        {
-            bzero(filename, sizeof(filename));
-            bzero(time_buf, sizeof(time_buf));
-            snprintf(filename, sizeof(filename), "%s/%d%d-A.jpg", SD_ROOT, timeinfo.tm_hour, timeinfo.tm_min);
-            snprintf(time_buf, sizeof(time_buf), "%s/%d%d-B.jpg", SD_ROOT, timeinfo.tm_hour, timeinfo.tm_min);
-            // Check if destination file exists before renaming
-            if (stat(filename, &st) == 0)
-            {
-                if (st.st_size != 0)
-                {
-                    ESP_LOGI(TAG, "Update Images A ...");
-                    TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
-                }
-                else
-                    goto LOCAL_TIME;
-            }
-            else if (stat(time_buf, &st) == 0)
-            {
-                if (st.st_size != 0)
-                {
-                    ESP_LOGI(TAG, "Update Images B ...");
-                    TFT_jpg_image(CENTER, CENTER, 1, -1, time_buf, NULL, 0);
-                }
-                else
-                    goto LOCAL_TIME;
-            }
-            else
-            {
-            LOCAL_TIME:
-                bzero(time_buf, sizeof(time_buf));
-                ESP_LOGI(TAG, "Update local time ...");
-                TFT_fillRect(0, 0, _width, _height, TFT_BLACK);
-                TFT_setFont(FONT_7SEG, NULL);
-                _fg = TFT_GREEN;
-                set_7seg_font_atrib(24, 6, 1, TFT_GREEN);
-                sprintf(time_buf, "%.2d:%.2d", timeinfo.tm_hour, timeinfo.tm_min);
-                TFT_print(time_buf, CENTER, CENTER);
-                _fg = TFT_CYAN;
-                set_7seg_font_atrib(8, 2, 1, TFT_CYAN);
-                sprintf(time_buf, "%d-%.2d-%.2d", (timeinfo.tm_year + 1900), (timeinfo.tm_mon + 1), timeinfo.tm_mday);
-                TFT_print(time_buf, CENTER, _height - MARGIN_Y - TFT_getfontheight());
-            }
-        }
-    }
-}
-
-esp_err_t init_sd_card(void)
+esp_err_t sd_card_init(void)
 {
-    esp_err_t ret;
     sdmmc_card_t *card = NULL;
+
+#ifndef USE_SPI_MODE
+    ESP_LOGI(TAG, "Using SDMMC peripheral");
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
     gpio_set_pull_mode(SDCARD_CMD, GPIO_PULLUP_ONLY); // CMD, needed in 4- and 1- line modes
@@ -632,20 +501,37 @@ esp_err_t init_sd_card(void)
     gpio_set_pull_mode(SDCARD_D1, GPIO_PULLUP_ONLY);  // D1, needed in 4-line mode only
     gpio_set_pull_mode(SDCARD_D2, GPIO_PULLUP_ONLY);  // D2, needed in 4-line mode only
     gpio_set_pull_mode(SDCARD_D3, GPIO_PULLUP_ONLY);  // D3, needed in 4- and 1-line modes
+#else
+    ESP_LOGI(TAG, "Using SPI peripheral");
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = VSPI_HOST;
+    sdspi_slot_config_t slot_config = SDSPI_SLOT_CONFIG_DEFAULT();
+    slot_config.gpio_miso = PIN_NUM_MISO;
+    slot_config.gpio_mosi = PIN_NUM_MOSI;
+    slot_config.gpio_sck = PIN_NUM_CLK;
+    slot_config.gpio_cs = 15;
+
+    gpio_pad_select_gpio(15);
+    gpio_set_direction(15, GPIO_MODE_OUTPUT);
+
+    // This initializes the slot without card detect (CD) and write protect (WP) signals.
+    // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
+#endif //USE_SPI_MODE
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
         .max_files = 5,
         .allocation_unit_size = 16 * 1024};
 
-    ret = esp_vfs_fat_sdmmc_mount(SD_ROOT, &host, &slot_config, &mount_config, &card);
-
-    return ret;
+    return esp_vfs_fat_sdmmc_mount(SD_ROOT, &host, &slot_config, &mount_config, &card);
 }
+
+#define MAIN_X 10
+#define MAIN_Y 10
 
 void app_main()
 {
-
+    int y = LASTY + TFT_getfontheight() + 2;
     /* Initialize NVS — it is used to store PHY calibration data */
     esp_err_t ret = nvs_flash_init();
 
@@ -660,84 +546,76 @@ void app_main()
     xDisplaySemaphore = xSemaphoreCreateBinary();
 
     // ====================================================================
+    // === initialization display interface                             ===
+    // ====================================================================
+    display_init();
+    TFT_print("Initialization display [OK]", MAIN_X, y);
+
+    // ====================================================================
+    // === get spiram free size                                         ===
+    // ====================================================================
+    float size = heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0 / 1024.0;
+    snprintf(recv_buf, sizeof(recv_buf), "SPRAM free size:[%fMB]", size);
+    TFT_print(recv_buf, MAIN_X, y);
+    vTaskDelay(800 / portTICK_PERIOD_MS);
+
+    // ====================================================================
     // === initialization i2s interface                                 ===
     // ====================================================================
-    i2s_init();
-
-#ifdef CONFIG_TTGO_T9_BOARD
-    hal_i2c_init(0, IIC_SDA, IIC_CLK);
-
-    WM8978_Init();
-
-    WM8978_ADDA_Cfg(1, 0);
-
-    // WM8978_Input_Cfg(1, 0, 0);
-
-    WM8978_Output_Cfg(1, 0);
-
-    // WM8978_MIC_Gain(25);
-
-    // WM8978_AUX_Gain(0);
-
-    // WM8978_LINEIN_Gain(0);
-
-    // WM8978_SPKvol_Set(0);
-
-    WM8978_HPvol_Set(100, 100);
-    // WM8978_EQ_3D_Dir(0);
-    // WM8978_EQ1_Set(0, 24);
-    // WM8978_EQ2_Set(0, 24);
-    // WM8978_EQ3_Set(0, 24);
-    // WM8978_EQ4_Set(0, 24);
-    // WM8978_EQ5_Set(0, 24);
-
-#else
-
-    initHardware();
+    ret = i2s_init();
+    snprintf(recv_buf, sizeof(recv_buf), "Initializing I2S Bus [%s]", ret != ESP_OK ? "FAIL" : "OK");
+    TFT_print(recv_buf, MAIN_X, y);
+    vTaskDelay(800 / portTICK_PERIOD_MS);
 
     // ====================================================================
     // === initialization sdcard                                        ===
     // ====================================================================
-    TFT_print("Initializing SD card", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+    // ret = sd_card_init();
+    // snprintf(recv_buf, sizeof(recv_buf), "Initializing SD card [%s]", ret != ESP_OK ? "FAIL" : "OK");
+    // TFT_print(recv_buf, MAIN_X, y);
 
-    ret = init_sd_card();
+    // do
+    // {
+    //     vTaskDelay(800 / portTICK_PERIOD_MS);
 
-    if (ret != ESP_OK)
+    // } while (ret != ESP_OK);
+
+    // ====================================================================
+    // === initialization BT Speaker                                    ===
+    // ====================================================================
+    TFT_print("initialization BT Speaker", MAIN_X, y);
+    bt_task_init();
+
+    ret = wifi_init();
+    snprintf(recv_buf, sizeof(recv_buf), "Initializing WiFi [%s]", ret == ESP_FAIL ? "FAIL" : "OK");
+    TFT_print(recv_buf, MAIN_X, y);
+
+    if (ret == ESP_ERR_INVALID_ARG)
     {
-        if (ret == ESP_FAIL)
-        {
-            TFT_print("Failed to mount filesystem.", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-            TFT_print("If you want the card to be formatted, set format_if_mount_failed = true.", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-        }
-        else
-        {
-            snprintf(recv_buf, sizeof(recv_buf), "Failed to initialize the card (%s). ", esp_err_to_name(ret));
-            TFT_print(recv_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
-        }
-
-        for (;;)
-        {
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
+        snprintf(recv_buf, sizeof(recv_buf), "WiFi not Configure,Enter SmartConfig...");
+        TFT_print(recv_buf, MAIN_X, y);
+        wifi_start_smartconfig();
+    }
+    else
+    {
+        wifi_start_connect();
     }
 
-    init_wifi();
+    // init_wifi();
 
     obtain_time();
 
-    xTimer = xTimerCreate("http_timer",
-                          1000 / portTICK_PERIOD_MS,
-                          pdTRUE,
-                          (void *)0,
-                          timing_callback);
+    // xTimer = xTimerCreate("http_timer",
+    //                       1000 / portTICK_PERIOD_MS,
+    //                       pdTRUE,
+    //                       (void *)0,
+    //                       timing_callback);
 
-    APP_ERROR_CHECK(!xTimer, "Create xTimer timer fail", esp_restart());
+    // APP_ERROR_CHECK(!xTimer, "Create xTimer timer fail", esp_restart());
 
-    xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
+    // xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
 
-    xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
+    // xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
 
-    xTimerStart(xTimer, 100);
-#endif
-    bt_task_init();
+    // xTimerStart(xTimer, 100);
 }

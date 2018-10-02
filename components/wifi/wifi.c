@@ -13,8 +13,6 @@
 
 #define TAG "[WiFi]"
 
-
-
 #define MARGIN_X 12
 
 EventGroupHandle_t wifi_event_group = NULL;
@@ -45,8 +43,6 @@ static void sc_callback(smartconfig_status_t status, void *pdata)
         wifi_config_t *wifi_config = pdata;
         ESP_LOGI(TAG, "SSID:%s", wifi_config->sta.ssid);
         ESP_LOGI(TAG, "PASSWORD:%s", wifi_config->sta.password);
-
-        // save_wifi_info(wifi_config);
 
         ESP_ERROR_CHECK(esp_wifi_disconnect());
         ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, wifi_config));
@@ -85,19 +81,14 @@ static esp_err_t sys_event_handler(void *ctx, system_event_t *event)
 
     case SYSTEM_EVENT_STA_START:
         ESP_LOGI(TAG, "SYSTEM_EVENT_STA_START\n");
-        if ((xEventGroupGetBits(wifi_event_group) & PREPARE_CONNECT_BIT))
-        {
-            ESP_ERROR_CHECK(esp_wifi_connect());
-        }
+        esp_wifi_connect();
         break;
 
     case SYSTEM_EVENT_STA_GOT_IP:
         ESP_LOGI(TAG, "SYSTEM_EVENT_STA_GOT_IP\n");
-
-        snprintf(tmp_buf, sizeof(tmp_buf), "got ip:%s", ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip));
+        snprintf(tmp_buf, sizeof(tmp_buf), "Get IP:%s", ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip));
         TFT_print(tmp_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
         xEventGroupSetBits(wifi_event_group, CONNECTED_BIT);
-
         break;
 
     case SYSTEM_EVENT_STA_DISCONNECTED:
@@ -135,12 +126,9 @@ void init_wifi(void)
     wifi_config_t conf;
     ESP_ERROR_CHECK(esp_wifi_get_config(ESP_IF_WIFI_STA, &conf));
 
-    ESP_LOGI(TAG, "ssid : %s", conf.sta.ssid);
-    ESP_LOGI(TAG, "passwd : %s", conf.sta.password);
-
-    if (!strlen((char*)conf.sta.ssid))
+    if (!strlen((char *)conf.sta.ssid))
     {
-        ESP_LOGI(TAG, "wifi is not config ,Start SmartConfig  Start...");
+        ESP_LOGI(TAG, "wifi is not config ,Start SmartConfig...");
         snprintf(tmp_buf, sizeof(tmp_buf), "wifi is not config,Start SmartConfig  Start...");
         TFT_print(tmp_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
 
@@ -160,10 +148,47 @@ void init_wifi(void)
         ESP_LOGI(TAG, "Start WiFi Connect ...");
         snprintf(tmp_buf, sizeof(tmp_buf), "Start WiFi Connect ...");
         TFT_print(tmp_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
-        xEventGroupSetBits(wifi_event_group, PREPARE_CONNECT_BIT);
         ESP_ERROR_CHECK(esp_wifi_start());
 
         xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
     }
     ESP_LOGI(TAG, "wifi task exit...");
+}
+
+/*------------*/
+#define ESP_APP_ERR_CHECK(ret) \
+    if (ret != ESP_OK)         \
+        return ret;
+
+esp_err_t wifi_init(void)
+{
+    wifi_config_t conf;
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    wifi_event_group = xEventGroupCreate();
+    tcpip_adapter_init();
+    ESP_APP_ERR_CHECK(esp_event_loop_init(sys_event_handler, NULL));
+    ESP_APP_ERR_CHECK(esp_wifi_init(&cfg));
+    ESP_APP_ERR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
+    ESP_APP_ERR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_APP_ERR_CHECK(esp_wifi_get_config(ESP_IF_WIFI_STA, &conf));
+    return strlen((char *)conf.sta.ssid) != 0 ? ESP_OK : ESP_ERR_INVALID_ARG;
+}
+
+void wifi_start_connect(void)
+{
+    ESP_ERROR_CHECK(esp_wifi_start());
+    xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
+}
+
+void wifi_start_smartconfig(void)
+{
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_smartconfig_set_type(SC_TYPE_ESPTOUCH));
+    ESP_ERROR_CHECK(esp_smartconfig_start(sc_callback));
+}
+
+void wifi_wait_smartconfig_done(void)
+{
+    xEventGroupWaitBits(wifi_event_group, ESPTOUCH_DONE_BIT, true, false, portMAX_DELAY);
+    esp_smartconfig_stop();
 }
