@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -58,31 +58,18 @@
 #include "hal_i2c.h"
 #include "wm8978.h"
 #include "board.h"
+#include "merror.h"
+#include "display.h"
 
 #define TAG "[main]"
-
-// ets_printf("err_code : %d file: \"%s\" line %d\nfunc: %s\nexpression: %s\ninfo:%s\n", code, __FILE__, __LINE__, __ASSERT_FUNC, info);
-#define APP_ERROR_CHECK(code, info, go)                                                                 \
-    do                                                                                                  \
-    {                                                                                                   \
-        if (code)                                                                                       \
-        {                                                                                               \
-            ets_printf("err_code : %d file: \"%s\" line %d info:%s\n", code, __FILE__, __LINE__, info); \
-            go;                                                                                         \
-        }                                                                                               \
-    } while (0)
 
 #define SD_ROOT "/sdcard"
 #define BIJINT_SERVER "www.bijint.com"
 #define BIJINT_PORT 80
 #define HTTP_REQUEST_RETRY_COUNT 5
 
-// ==========================================================
-// Define which spi bus to use TFT_VSPI_HOST or TFT_HSPI_HOST
-#define SPI_BUS TFT_VSPI_HOST
-// ==========================================================
-#define MARGIN_X 12
-#define MARGIN_Y 12
+#define MAIN_X 10
+#define MAIN_Y 10
 
 static char http_buf[1024];
 static const char *HTTP_REQUEST =
@@ -113,7 +100,6 @@ enum
 /* handler for bluetooth stack enabled events */
 static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
 {
-
     ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
     switch (event)
     {
@@ -186,82 +172,10 @@ void bt_task_init(void)
     bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL);
 }
 
-void initHardware(void)
-{
-    tft_disp_type = DISP_TYPE_ILI9341;
-    _width = DEFAULT_TFT_DISPLAY_WIDTH;   // smaller dimension
-    _height = DEFAULT_TFT_DISPLAY_HEIGHT; // larger dimension
-    max_rdclock = 8000000;
-    TFT_PinsInit();
-
-    // ====  CONFIGURE SPI DEVICES(s)  ====================================================================================
-
-    spi_lobo_device_handle_t spi;
-
-    spi_lobo_bus_config_t buscfg = {
-        .miso_io_num = TFT_SPI_MISO, //PIN_NUM_MISO, // set SPI MISO pin
-        .mosi_io_num = TFT_SPI_MOSI, //PIN_NUM_MOSI, // set SPI MOSI pin
-        .sclk_io_num = TFT_SPI_SCLK, //PIN_NUM_CLK,  // set SPI CLK pin
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 6 * 1024,
-    };
-    spi_lobo_device_interface_config_t devcfg = {
-        .clock_speed_hz = 8000000,         // Initial clock out at 8 MHz
-        .mode = 0,                         // SPI mode 0
-        .spics_io_num = TFT_SPI_CS,        //PIN_NUM_CS,        // set SPI CS pin
-        .flags = LB_SPI_DEVICE_HALFDUPLEX, // ALWAYS SET  to HALF DUPLEX MODE!! for display spi
-    };
-
-    ESP_ERROR_CHECK(spi_lobo_bus_add_device(SPI_BUS, &buscfg, &devcfg, &spi));
-    ESP_LOGI(TAG, "SPI: display device added to spi bus (%d)\r\n", SPI_BUS);
-    disp_spi = spi;
-
-    // ==== Test select/deselect ====
-    ESP_ERROR_CHECK(spi_lobo_device_select(spi, 1));
-    ESP_ERROR_CHECK(spi_lobo_device_deselect(spi));
-
-    ESP_LOGI(TAG, "SPI: attached display device, speed=%u\r\n", spi_lobo_get_speed(spi));
-    ESP_LOGI(TAG, "SPI: bus uses native pins: %s\r\n", spi_lobo_uses_native_pins(spi) ? "true" : "false");
-
-    // ================================
-    // ==== Initialize the Display ====
-    ESP_LOGI(TAG, "SPI: display init...\r\n");
-    TFT_display_init();
-    ESP_LOGI(TAG, "OK\r\n");
-
-#if 0
-    // ---- Detect maximum read speed ----
-    max_rdclock = find_rd_speed();
-    ESP_LOGI(TAG, "SPI: Max rd speed = %u\r\n", max_rdclock);
-
-    // ==== Set SPI clock used for display operations ====
-    spi_lobo_set_speed(spi, DEFAULT_SPI_CLOCK);
-    ESP_LOGI(TAG, "SPI: Changed speed to %u\r\n", spi_lobo_get_speed(spi));
-
-    ESP_LOGI(TAG, "\r\n---------------------\r\n");
-    ESP_LOGI(TAG, "Graphics demo started\r\n");
-    ESP_LOGI(TAG, "---------------------\r\n");
-#endif
-
-    font_rotate = 0;
-    text_wrap = 0;
-    font_transparent = 0;
-    font_forceFixed = 0;
-    image_debug = 0;
-    TFT_setGammaCurve(DEFAULT_GAMMA_CURVE);
-    TFT_setRotation(LANDSCAPE);
-    TFT_setFont(DEFAULT_FONT, NULL);
-
-    _fg = TFT_WHITE;
-
-    TFT_print("TTGO T14 Bluetooth player & HTTP Clock", MARGIN_X, MARGIN_Y);
-}
-
 bool obtain_time(void)
 {
     char strftime_buf[64];
-    TFT_print("Initializing SNTP", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+    // TFT_print("Initializing SNTP", MARGIN_X, LASTY + TFT_getfontheight() + 2);
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
     sntp_init();
@@ -271,7 +185,7 @@ bool obtain_time(void)
     // wait for time to be set
     int retry = 0;
     const int retry_count = 10;
-    int16_t x = MARGIN_X, y = LASTY + TFT_getfontheight() + 2;
+    int16_t x = MAIN_X, y = LASTY + TFT_getfontheight() + 2;
     while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count)
     {
         snprintf(recv_buf, sizeof(recv_buf), "Waiting for system time to be set... (%d/%d)", retry, retry_count);
@@ -283,7 +197,7 @@ bool obtain_time(void)
 
     if (timeinfo.tm_year < (2016 - 1900))
     {
-        TFT_print("System time NOT set. Restart now . ", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+        TFT_print("System time NOT set. Restart now . ", x, y);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
         esp_restart();
         return false;
@@ -293,8 +207,8 @@ bool obtain_time(void)
     tzset();
     localtime_r(&now, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    snprintf(recv_buf, sizeof(recv_buf), "The current date/time in Shanghai is: %s", strftime_buf);
-    TFT_print(strftime_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
+    snprintf(recv_buf, sizeof(recv_buf), "The current date/time : %s", strftime_buf);
+    TFT_print(recv_buf, x, y);
     return true;
 }
 
@@ -469,7 +383,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
         {
             file_size += fwrite(recv_buf, 1, ret, f);
         }
-        
+
         if (file_size == length)
         {
             break;
@@ -485,9 +399,6 @@ bool request_image(uint8_t hours, uint8_t mintues)
     ESP_LOGI(TAG, " file_size : %u", file_size);
     fclose(f);
 #endif
-
-    // TFT_jpg_image(CENTER, CENTER, 1, -1, filename, NULL, 0);
-    // TFT_jpg_image(CENTER, CENTER, 1, fd, NULL, NULL, 0);
     close(fd);
     ESP_LOGI(TAG, "Close fd: %d", fd);
     return true;
@@ -558,9 +469,10 @@ void http_task(void *param)
     {
         if (xSemaphoreTake(xHttpSemaphore, portMAX_DELAY) == pdTRUE)
         {
-            xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
-                                pdFALSE, pdTRUE, portMAX_DELAY);
-            get_pic();
+            if (periph_wifi_wait_for_connected(portMAX_DELAY) == ESP_OK)
+            {
+                get_pic();
+            }
             vTaskDelay(500 / portTICK_PERIOD_MS);
         }
     }
@@ -615,7 +527,7 @@ void display_task(void *param)
                 _fg = TFT_CYAN;
                 set_7seg_font_atrib(8, 2, 1, TFT_CYAN);
                 sprintf(time_buf, "%d-%.2d-%.2d", (timeinfo.tm_year + 1900), (timeinfo.tm_mon + 1), timeinfo.tm_mday);
-                TFT_print(time_buf, CENTER, _height - MARGIN_Y - TFT_getfontheight());
+                TFT_print(time_buf, CENTER, _height - 12 - TFT_getfontheight());
             }
         }
     }
@@ -643,10 +555,43 @@ esp_err_t init_sd_card(void)
     return ret;
 }
 
+
+void wifi_task(void *param)
+{
+    esp_err_t ret;
+    periph_wifi_cfg_t config = {false, 5000, "", ""};
+    ret = periph_wifi_init(&config);
+
+    ret = periph_wifi_wait_for_connected(30000 / portTICK_PERIOD_MS);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE(TAG, "WiFi Connect [FAIL]");
+        periph_wifi_config_start(WIFI_CONFIG_ESPTOUCH);
+        ret = periph_wifi_config_wait_done(60000 / portTICK_PERIOD_MS);
+        if (ret == ESP_OK)
+        {
+            goto _wifi_config_success;
+        }
+    }
+    else
+    {
+        goto _wifi_config_success;
+    }
+    vTaskDelete(NULL);
+    return;
+_wifi_config_success:
+    obtain_time();
+    // xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
+    vTaskDelete(NULL);
+}
+
 void app_main()
 {
+    int x = MAIN_X, y = LASTY + TFT_getfontheight() + 2;
 
-    /* Initialize NVS — it is used to store PHY calibration data */
+    // ====================================================================
+    // === initialization NVS                                           ===
+    // ====================================================================
     esp_err_t ret = nvs_flash_init();
 
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -654,90 +599,61 @@ void app_main()
         ESP_ERROR_CHECK(nvs_flash_erase());
         ESP_ERROR_CHECK(nvs_flash_init());
     }
-
+    // ====================================================================
+    // === create Semaphore                                             ===
+    // ====================================================================
     xHttpSemaphore = xSemaphoreCreateBinary();
 
     xDisplaySemaphore = xSemaphoreCreateBinary();
 
     // ====================================================================
+    // === initialization display interface                             ===
+    // ====================================================================
+    display_init();
+    TFT_print("Initialization display [OK]", MAIN_X, MAIN_Y);
+    snprintf(recv_buf, sizeof(recv_buf), "SPRAM free size[%.2fMB]", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0 / 1024.0);
+    TFT_print(recv_buf, x, y);
+    vTaskDelay(800 / portTICK_PERIOD_MS);
+
+    // ====================================================================
     // === initialization i2s interface                                 ===
     // ====================================================================
     i2s_init();
-
-#ifdef CONFIG_TTGO_T9_BOARD
-    hal_i2c_init(0, IIC_SDA, IIC_CLK);
-
-    WM8978_Init();
-
-    WM8978_ADDA_Cfg(1, 0);
-
-    // WM8978_Input_Cfg(1, 0, 0);
-
-    WM8978_Output_Cfg(1, 0);
-
-    // WM8978_MIC_Gain(25);
-
-    // WM8978_AUX_Gain(0);
-
-    // WM8978_LINEIN_Gain(0);
-
-    // WM8978_SPKvol_Set(0);
-
-    WM8978_HPvol_Set(100, 100);
-    // WM8978_EQ_3D_Dir(0);
-    // WM8978_EQ1_Set(0, 24);
-    // WM8978_EQ2_Set(0, 24);
-    // WM8978_EQ3_Set(0, 24);
-    // WM8978_EQ4_Set(0, 24);
-    // WM8978_EQ5_Set(0, 24);
-
-#else
-
-    initHardware();
+    TFT_print("Initialization I2S device [OK]", x, y);
+    vTaskDelay(800 / portTICK_PERIOD_MS);
 
     // ====================================================================
     // === initialization sdcard                                        ===
     // ====================================================================
-    TFT_print("Initializing SD card", MARGIN_X, LASTY + TFT_getfontheight() + 2);
+    // ret = init_sd_card();
+    // snprintf(recv_buf, sizeof(recv_buf), "Initializing SD card[%s]", ret != ESP_OK ? "FAIL" : "OK");
+    // TFT_print(recv_buf, x, y);
+    // if (ret != ESP_OK)
+    // {
+    //     TFT_print("Use local time display", x, y);
+    // }
+    // vTaskDelay(800 / portTICK_PERIOD_MS);
 
-    ret = init_sd_card();
+    // ====================================================================
+    // === initialization BT Speaker                                    ===
+    // ====================================================================
+    bt_task_init();
+    TFT_print("Initialization BT Speaker [OK]", x, y);
+    vTaskDelay(800 / portTICK_PERIOD_MS);
 
-    if (ret != ESP_OK)
-    {
-        if (ret == ESP_FAIL)
-        {
-            TFT_print("Failed to mount filesystem.", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-            TFT_print("If you want the card to be formatted, set format_if_mount_failed = true.", MARGIN_X, LASTY + TFT_getfontheight() + 2);
-        }
-        else
-        {
-            snprintf(recv_buf, sizeof(recv_buf), "Failed to initialize the card (%s). ", esp_err_to_name(ret));
-            TFT_print(recv_buf, MARGIN_X, LASTY + TFT_getfontheight() + 2);
-        }
+    // ====================================================================
+    // === create wifi task                                             ===
+    // ====================================================================
+    xTaskCreate(wifi_task, "wifi_task", 4096, NULL, 2, NULL);
 
-        for (;;)
-        {
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
-    }
-
-    init_wifi();
-
-    obtain_time();
-
-    xTimer = xTimerCreate("http_timer",
-                          1000 / portTICK_PERIOD_MS,
-                          pdTRUE,
-                          (void *)0,
-                          timing_callback);
-
-    APP_ERROR_CHECK(!xTimer, "Create xTimer timer fail", esp_restart());
-
-    xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
-
+    // ====================================================================
+    // === create display task                                          ===
+    // ====================================================================
     xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
 
-    xTimerStart(xTimer, 100);
-#endif
-    bt_task_init();
+    // ====================================================================
+    // === start timer                                                  ===
+    // ====================================================================
+    esp_periph_start_timer(xTimer,1000 / portTICK_PERIOD_MS,timing_callback);
+
 }
