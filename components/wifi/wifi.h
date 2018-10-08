@@ -1,6 +1,7 @@
 #ifndef __WIFI_H
 #define __WIFI_H
 
+#include "esp_wifi.h"
 /**
  * @brief      Peripheral Wi-Fi event id
  */

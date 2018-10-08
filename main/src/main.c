@@ -60,6 +60,7 @@
 #include "board.h"
 #include "merror.h"
 #include "display.h"
+#include "esp_peripherals.h"
 
 #define TAG "[main]"
 
@@ -68,7 +69,7 @@
 #define BIJINT_PORT 80
 #define HTTP_REQUEST_RETRY_COUNT 5
 
-#define MAIN_X 10
+#define MAIN_X 0
 #define MAIN_Y 10
 
 static char http_buf[1024];
@@ -89,7 +90,6 @@ static SemaphoreHandle_t xDisplaySemaphore = NULL;
 static SemaphoreHandle_t xHttpSemaphore = NULL;
 static TimerHandle_t xTimer = NULL;
 static char recv_buf[1024];
-extern EventGroupHandle_t wifi_event_group;
 
 /* event for handler "bt_av_hdl_stack_up */
 enum
@@ -128,6 +128,16 @@ static void bt_av_hdl_stack_evt(uint16_t event, void *p_param)
     }
 }
 
+void pcm5102_mute_enable(void)
+{
+    gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_ON);
+}
+
+void pcm5102_mute_disable(void)
+{
+    gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_OFF);
+}
+
 void i2s_init(void)
 {
     i2s_config_t i2s_config = {
@@ -151,9 +161,14 @@ void i2s_init(void)
 
     i2s_set_pin(0, &pin_config);
 
+    /*disable mute function*/
+    gpio_pad_select_gpio(PCM5102_MUTE);
+    gpio_set_direction(PCM5102_MUTE, GPIO_MODE_OUTPUT);
+    gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_OFF);
+
 #ifdef CONFIG_TTGO_T9_BOARD
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_CLK_OUT1);
-    REG_WRITE(PIN_CTRL, 0xFFFFFFF0);
+    // PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_CLK_OUT1);
+    // REG_WRITE(PIN_CTRL, 0xFFFFFFF0);
 #endif
 }
 
@@ -172,6 +187,24 @@ void bt_task_init(void)
     bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL);
 }
 
+char *get_format_string(char *format, ...)
+{
+    static char buffer[1024];
+    va_list arg_ptr;
+    va_start(arg_ptr, format);
+    vsnprintf(buffer, sizeof(buffer) - 1, format, arg_ptr);
+    return buffer;
+}
+
+void tft_printf(int16_t x, int16_t y, char *format, ...)
+{
+    static char buffer[1024];
+    va_list arg_ptr;
+    va_start(arg_ptr, format);
+    vsnprintf(buffer, sizeof(buffer) - 1, format, arg_ptr);
+    TFT_print(buffer, x, y);
+}
+
 bool obtain_time(void)
 {
     char strftime_buf[64];
@@ -188,8 +221,9 @@ bool obtain_time(void)
     int16_t x = MAIN_X, y = LASTY + TFT_getfontheight() + 2;
     while (timeinfo.tm_year < (2016 - 1900) && ++retry < retry_count)
     {
-        snprintf(recv_buf, sizeof(recv_buf), "Waiting for system time to be set... (%d/%d)", retry, retry_count);
-        TFT_print(recv_buf, x, y);
+        tft_printf(x,y,"Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        // snprintf(recv_buf, sizeof(recv_buf), "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        // TFT_print(recv_buf, x, y);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
         time(&now);
         localtime_r(&now, &timeinfo);
@@ -197,7 +231,8 @@ bool obtain_time(void)
 
     if (timeinfo.tm_year < (2016 - 1900))
     {
-        TFT_print("System time NOT set. Restart now . ", x, y);
+        tft_printf(x,y,"System time NOT set. Restart now . ");
+        // TFT_print("System time NOT set. Restart now . ", x, y);
         vTaskDelay(2000 / portTICK_PERIOD_MS);
         esp_restart();
         return false;
@@ -207,8 +242,9 @@ bool obtain_time(void)
     tzset();
     localtime_r(&now, &timeinfo);
     strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-    snprintf(recv_buf, sizeof(recv_buf), "The current date/time : %s", strftime_buf);
-    TFT_print(recv_buf, x, y);
+    // snprintf(recv_buf, sizeof(recv_buf), "The current date/time : %s", strftime_buf);
+    // TFT_print(recv_buf, x, y);
+    tft_printf(x,y,"The current date/time : %s", strftime_buf);
     return true;
 }
 
@@ -555,33 +591,66 @@ esp_err_t init_sd_card(void)
     return ret;
 }
 
+void wifi_config_task(void)
+{
+    esp_err_t ret;
+    int x = MAIN_X, y = LASTY + TFT_getfontheight() + 2;
+    ret = periph_wifi_config_start(WIFI_CONFIG_ESPTOUCH);
+    TFT_print(get_format_string("SmartConfig Start[%s]", ret != ESP_OK ? "FAIL" : "OK"), x, y);
+    ret = periph_wifi_config_wait_done(portMAX_DELAY);
+    TFT_print("SmartConfig Done", x, y);
+}
+
+void app_task(void)
+{
+    obtain_time();
+
+    // xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
+
+    // ====================================================================
+    // === create display task                                          ===
+    // ====================================================================
+    xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
+
+    // ====================================================================
+    // === start timer                                                  ===
+    // ====================================================================
+    esp_periph_start_timer(xTimer, 1000 / portTICK_PERIOD_MS, timing_callback);
+}
 
 void wifi_task(void *param)
 {
     esp_err_t ret;
-    periph_wifi_cfg_t config = {false, 5000, "", ""};
-    ret = periph_wifi_init(&config);
+    periph_wifi_cfg_t config = {
+        .disable_auto_reconnect = false,
+        .reconnect_timeout_ms = 5000,
+        .ssid = "",
+        .password = ""};
 
-    ret = periph_wifi_wait_for_connected(30000 / portTICK_PERIOD_MS);
-    if (ret != ESP_OK)
+    int x = MAIN_X, y = LASTY + TFT_getfontheight() + 2;
+
+    ret = periph_wifi_init(&config);
+    if (ret == ESP_ERR_WIFI_SSID)
     {
-        ESP_LOGE(TAG, "WiFi Connect [FAIL]");
-        periph_wifi_config_start(WIFI_CONFIG_ESPTOUCH);
-        ret = periph_wifi_config_wait_done(60000 / portTICK_PERIOD_MS);
-        if (ret == ESP_OK)
-        {
-            goto _wifi_config_success;
-        }
+        wifi_config_task();
+        // result = xTaskCreate(wifi_config_task, "wifi_config", 2048, NULL, 5, NULL);
+        // TFT_print(get_format_string("WiFi is not configure , Start config \r\nprogram[%s]", result != ESP_OK ? "FAIL" : "OK"), x, y);
     }
     else
     {
-        goto _wifi_config_success;
+        wifi_config_t wifi_config;
+        ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_config);
+        if (ret != ESP_OK)
+        {
+            TFT_print("WiFi Get ssid [FAIL]", x, y);
+        }
+        else
+        {
+            TFT_print(get_format_string("Connect to [%s] ...", wifi_config.sta.ssid), x, y);
+            periph_wifi_wait_for_connected(portMAX_DELAY);
+        }
     }
-    vTaskDelete(NULL);
-    return;
-_wifi_config_success:
-    obtain_time();
-    // xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
+    app_task();
     vTaskDelete(NULL);
 }
 
@@ -610,35 +679,30 @@ void app_main()
     // === initialization display interface                             ===
     // ====================================================================
     display_init();
-    TFT_print("Initialization display [OK]", MAIN_X, MAIN_Y);
-    snprintf(recv_buf, sizeof(recv_buf), "SPRAM free size[%.2fMB]", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0 / 1024.0);
-    TFT_print(recv_buf, x, y);
+    tft_printf(x,MAIN_Y,"Initialization display [OK]");
+
+    tft_printf(x,y,"SPRAM free size[%.2fMB]", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0 / 1024.0);
     vTaskDelay(800 / portTICK_PERIOD_MS);
 
     // ====================================================================
     // === initialization i2s interface                                 ===
     // ====================================================================
     i2s_init();
-    TFT_print("Initialization I2S device [OK]", x, y);
+    tft_printf(x,y,"Initialization I2S device [OK]");
     vTaskDelay(800 / portTICK_PERIOD_MS);
 
     // ====================================================================
     // === initialization sdcard                                        ===
     // ====================================================================
-    // ret = init_sd_card();
-    // snprintf(recv_buf, sizeof(recv_buf), "Initializing SD card[%s]", ret != ESP_OK ? "FAIL" : "OK");
-    // TFT_print(recv_buf, x, y);
-    // if (ret != ESP_OK)
-    // {
-    //     TFT_print("Use local time display", x, y);
-    // }
-    // vTaskDelay(800 / portTICK_PERIOD_MS);
+    ret = init_sd_card();
+    tft_printf(x,y, "Initializing SD card[%s]", ret != ESP_OK ? "FAIL" : "OK");
+    vTaskDelay(800 / portTICK_PERIOD_MS);
 
     // ====================================================================
     // === initialization BT Speaker                                    ===
     // ====================================================================
     bt_task_init();
-    TFT_print("Initialization BT Speaker [OK]", x, y);
+    tft_printf(x,y,"Initialization BT Speaker [OK]");
     vTaskDelay(800 / portTICK_PERIOD_MS);
 
     // ====================================================================
@@ -646,14 +710,17 @@ void app_main()
     // ====================================================================
     xTaskCreate(wifi_task, "wifi_task", 4096, NULL, 2, NULL);
 
+    // obtain_time();
+
+    // xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
+
     // ====================================================================
     // === create display task                                          ===
     // ====================================================================
-    xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
+    // xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
 
     // ====================================================================
     // === start timer                                                  ===
     // ====================================================================
-    esp_periph_start_timer(xTimer,1000 / portTICK_PERIOD_MS,timing_callback);
-
+    // esp_periph_start_timer(xTimer, 1000 / portTICK_PERIOD_MS, timing_callback);
 }

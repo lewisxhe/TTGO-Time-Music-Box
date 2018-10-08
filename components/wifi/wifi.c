@@ -28,6 +28,7 @@ struct periph_wifi
 {
     periph_wifi_state_t wifi_state;
     bool disable_auto_reconnect;
+    bool backup_reconnect;
     bool is_open;
     uint8_t max_recon_time;
     char *ssid;
@@ -38,7 +39,6 @@ struct periph_wifi
 };
 
 periph_wifi_handle_t periph_wifi = NULL;
-
 
 static void wifi_reconnect_timer(xTimerHandle tmr)
 {
@@ -89,11 +89,14 @@ static void _wifi_smartconfig_event_callback(smartconfig_status_t status, void *
 
         if (esp_wifi_set_config(WIFI_IF_STA, &sta_conf) != ESP_OK)
         {
+            ESP_LOGI(TAG, "esp_wifi_set_config FAIL");
             periph_wifi->wifi_state = PERIPH_WIFI_SMARTCONFIG_ERROR;
             xEventGroupSetBits(periph_wifi->state_event, SMARTCONFIG_ERROR_BIT);
         }
+
         if (esp_wifi_connect() != ESP_OK)
         {
+            ESP_LOGI(TAG, "esp_wifi_connect FAIL");
             periph_wifi->wifi_state = PERIPH_WIFI_SMARTCONFIG_ERROR;
             xEventGroupSetBits(periph_wifi->state_event, SMARTCONFIG_ERROR_BIT);
             // esp_periph_send_event(g_periph, PERIPH_WIFI_SMARTCONFIG_ERROR, NULL, 0);
@@ -172,8 +175,8 @@ esp_err_t periph_wifi_config_start(periph_wifi_config_mode_t mode)
 esp_err_t periph_wifi_config_wait_done(TickType_t tick_to_wait)
 {
     EventBits_t smartconfig_bit = xEventGroupWaitBits(periph_wifi->state_event,
-                                                      SMARTCONFIG_DONE_BIT | SMARTCONFIG_ERROR_BIT, false, true, tick_to_wait);
-
+                                                      SMARTCONFIG_DONE_BIT | SMARTCONFIG_ERROR_BIT, false, false, tick_to_wait);
+    
     if (smartconfig_bit & SMARTCONFIG_DONE_BIT)
     {
         return ESP_OK;
@@ -183,6 +186,7 @@ esp_err_t periph_wifi_config_wait_done(TickType_t tick_to_wait)
         return ESP_FAIL;
     }
     esp_smartconfig_stop();
+
     return ESP_FAIL;
 }
 
@@ -214,11 +218,16 @@ static esp_err_t _wifi_event_callback(void *ctx, system_event_t *event)
                  periph_wifi->ssid,
                  periph_wifi->disable_auto_reconnect == 0 ? "enabled" : "disabled",
                  periph_wifi->reconnect_timeout_ms);
+
         if (periph_wifi->disable_auto_reconnect)
         {
             break;
         }
-        esp_periph_start_timer(periph_wifi->timer,periph_wifi->reconnect_timeout_ms / portTICK_RATE_MS, wifi_reconnect_timer);
+        {
+
+            esp_err_t err = esp_periph_start_timer(periph_wifi->timer, periph_wifi->reconnect_timeout_ms / portTICK_RATE_MS, wifi_reconnect_timer);
+            ESP_LOGI(TAG, "esp_periph_start_timer [%s]", err != ESP_OK ? "FAIL" : "OK");
+        }
         break;
     default:
         break;
@@ -228,6 +237,7 @@ static esp_err_t _wifi_event_callback(void *ctx, system_event_t *event)
 
 static esp_err_t _wifi_init(void)
 {
+    esp_err_t ret;
     wifi_config_t wifi_config;
 
     if (periph_wifi->is_open)
@@ -249,8 +259,21 @@ static esp_err_t _wifi_init(void)
         esp_event_loop_set_cb(_wifi_event_callback, NULL);
     }
 
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+
     memset(&wifi_config, 0x00, sizeof(wifi_config_t));
-    if (periph_wifi->ssid)
+
+    if (strlen(periph_wifi->ssid) == 0)
+    {
+        ret = esp_wifi_get_config(WIFI_IF_STA, &wifi_config);
+        if (ret != ESP_OK || !strlen((char *)wifi_config.sta.ssid))
+        {
+            ret = ESP_ERR_WIFI_SSID;
+        }
+        ESP_LOGI(TAG, "get ssid : %s password: %s", wifi_config.sta.ssid, wifi_config.sta.password);
+    }
+    else
     {
         strcpy((char *)wifi_config.sta.ssid, periph_wifi->ssid);
         ESP_LOGD(TAG, "WIFI_SSID=%s", wifi_config.sta.ssid);
@@ -259,17 +282,30 @@ static esp_err_t _wifi_init(void)
             strcpy((char *)wifi_config.sta.password, periph_wifi->password);
             ESP_LOGD(TAG, "WIFI_PASS=%s", wifi_config.sta.password);
         }
-        ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+        ret = ESP_OK;
     }
+
+    // if (periph_wifi->ssid)
+    // {
+        // strcpy((char *)wifi_config.sta.ssid, periph_wifi->ssid);
+        // ESP_LOGD(TAG, "WIFI_SSID=%s", wifi_config.sta.ssid);
+        // if (periph_wifi->password)
+        // {
+        //     strcpy((char *)wifi_config.sta.password, periph_wifi->password);
+        //     ESP_LOGD(TAG, "WIFI_PASS=%s", wifi_config.sta.password);
+        // }
+        // ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+        // ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        // ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    // }
 
     ESP_ERROR_CHECK(esp_wifi_start());
     periph_wifi->is_open = true;
     periph_wifi->wifi_state = PERIPH_WIFI_DISCONNECTED;
     xEventGroupClearBits(periph_wifi->state_event, CONNECTED_BIT);
     xEventGroupSetBits(periph_wifi->state_event, DISCONNECTED_BIT);
-    return ESP_OK;
+    return ret;
 }
 
 static esp_err_t _wifi_destroy(void)
@@ -306,6 +342,7 @@ esp_err_t periph_wifi_init(periph_wifi_cfg_t *config)
         periph_wifi->reconnect_timeout_ms = DEFAULT_RECONNECT_TIMEOUT_MS;
     }
     periph_wifi->disable_auto_reconnect = config->disable_auto_reconnect;
+    periph_wifi->backup_reconnect = config->disable_auto_reconnect;
 
     return _wifi_init();
 

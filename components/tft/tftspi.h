@@ -142,7 +142,7 @@
 //     for example the one on ESP-WROWER-KIT ###
 // #############################################
 #define TFT_INVERT_ROTATION 0
-#define TFT_INVERT_ROTATION1 0    // 定义1 则镜像显示
+#define TFT_INVERT_ROTATION1 1    // 定义1 则镜像显示
 #define TFT_INVERT_ROTATION2 0   // Adapte M5Stack TFT
 
 // #############################################
@@ -176,7 +176,7 @@
 // ** If you want to use them, set them to some valid GPIO number
 #define PIN_NUM_RST  TFT_RESET  	// GPIO used for RESET control
 
-#define PIN_NUM_BCKL 0  	// GPIO used for backlight control
+#define PIN_NUM_BCKL TFT_BACKLIGHT  	// GPIO used for backlight control
 #define PIN_BCKL_ON  0  	// GPIO value for backlight ON
 #define PIN_BCKL_OFF 1  	// GPIO value for backlight OFF
 // --------------------------------------------------------------

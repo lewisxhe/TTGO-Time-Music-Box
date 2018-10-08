@@ -27,7 +27,7 @@ void display_init(void)
 {
     pdMutex = xSemaphoreCreateMutex();
 
-    tft_disp_type = DISP_TYPE_ILI9341;
+    tft_disp_type = TFT_CHIP_TYPE;
     _width = DEFAULT_TFT_DISPLAY_WIDTH;   // smaller dimension
     _height = DEFAULT_TFT_DISPLAY_HEIGHT; // larger dimension
     max_rdclock = 8000000;
@@ -74,7 +74,7 @@ void display_init(void)
     font_forceFixed = 0;
     image_debug = 0;
     TFT_setGammaCurve(DEFAULT_GAMMA_CURVE);
-    TFT_setRotation(LANDSCAPE);
+    TFT_setRotation(LANDSCAPE_FLIP);
     TFT_setFont(DEFAULT_FONT, NULL);
     _fg = TFT_WHITE;
 }

@@ -11,4 +11,4 @@ include $(IDF_PATH)/make/project.mk
 
 
 erase:
-	esptool.py --p COM30  erase_flash
+	esptool.py --p COM58  erase_flash
