@@ -24,6 +24,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2s.h"
+#include "board.h"
+#include "bt_keycontrol.h"
 
 /* a2dp event handler */
 static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param);
@@ -35,6 +37,15 @@ static esp_a2d_audio_state_t m_audio_state = ESP_A2D_AUDIO_STATE_STOPPED;
 static const char *m_a2d_conn_state_str[] = {"Disconnected", "Connecting", "Connected", "Disconnecting"};
 static const char *m_a2d_audio_state_str[] = {"Suspended", "Stopped", "Started"};
 
+typedef struct
+{
+
+    uint64_t pos;
+    uint8_t tl;
+    bool avrc_connected;
+} bluetooth_service_t;
+
+bluetooth_service_t g_bt_service;
 /* callback for A2DP sink */
 void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param)
 {
@@ -92,7 +103,7 @@ void bt_app_rc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param
         break;
     }
 }
-#include "board.h"
+
 static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
 {
     ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
@@ -107,16 +118,12 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
                  m_a2d_conn_state_str[a2d->conn_stat.state], bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
         if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED)
         {
-            // ESP_LOGI(BT_AV_TAG, "i2s_stop");
-            // i2s_stop(0);
-            ESP_LOGI("TAG", "PCM5102_MUTE_ON");
+            ESP_LOGI(BT_AV_TAG, "PCM5102_MUTE_ON");
             gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_ON);
             esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
         }
         else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED)
         {
-            // ESP_LOGI(BT_AV_TAG, "i2s_start");
-            // i2s_start(0);
             esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_NONE);
         }
         break;
@@ -131,11 +138,11 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
         case ESP_A2D_AUDIO_STATE_REMOTE_SUSPEND:
             break;
         case ESP_A2D_AUDIO_STATE_STOPPED:
-            ESP_LOGI("TAG", "PCM5102_MUTE_ON");
+            ESP_LOGI(BT_AV_TAG, "PCM5102_MUTE_ON");
             gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_ON);
             break;
         case ESP_A2D_AUDIO_STATE_STARTED:
-            ESP_LOGI("TAG", "PCM5102_MUTE_OFF");
+            ESP_LOGI(BT_AV_TAG, "PCM5102_MUTE_OFF");
             gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_OFF);
             break;
         default:
@@ -211,6 +218,9 @@ static void bt_av_hdl_avrc_evt(uint16_t event, void *p_param)
     case ESP_AVRC_CT_CONNECTION_STATE_EVT:
     {
         uint8_t *bda = rc->conn_stat.remote_bda;
+
+        g_bt_service.avrc_connected = rc->conn_stat.connected;
+
         ESP_LOGI(BT_AV_TAG, "AVRC conn_state evt: state %d, [%02x:%02x:%02x:%02x:%02x:%02x]",
                  rc->conn_stat.connected, bda[0], bda[1], bda[2], bda[3], bda[4], bda[5]);
 
@@ -221,10 +231,19 @@ static void bt_av_hdl_avrc_evt(uint16_t event, void *p_param)
         break;
     }
     case ESP_AVRC_CT_PASSTHROUGH_RSP_EVT:
-    {
+        if (g_bt_service.avrc_connected)
+        {
+            ESP_LOGD(BT_AV_TAG, "AVRC passthrough rsp: key_code 0x%x, key_state %d", rc->psth_rsp.key_code, rc->psth_rsp.key_state);
+            bt_key_act_param_t param;
+            memset(&param, 0, sizeof(bt_key_act_param_t));
+            param.evt = event;
+            param.tl = rc->psth_rsp.tl;
+            param.key_code = rc->psth_rsp.key_code;
+            param.key_state = rc->psth_rsp.key_state;
+            bt_key_act_state_machine(&param);
+        }
         ESP_LOGI(BT_AV_TAG, "AVRC passthrough rsp: key_code 0x%x, key_state %d", rc->psth_rsp.key_code, rc->psth_rsp.key_state);
         break;
-    }
     case ESP_AVRC_CT_METADATA_RSP_EVT:
     {
         // show music name and othre info
@@ -250,4 +269,55 @@ static void bt_av_hdl_avrc_evt(uint16_t event, void *p_param)
         ESP_LOGE(BT_AV_TAG, "%s unhandled evt %d", __func__, event);
         break;
     }
+}
+
+static esp_err_t periph_bluetooth_passthrough_cmd(uint8_t cmd)
+{
+    if (g_bt_service.avrc_connected)
+    {
+        bt_key_act_param_t param;
+        memset(&param, 0, sizeof(bt_key_act_param_t));
+        param.evt = ESP_AVRC_CT_KEY_STATE_CHG_EVT;
+        param.key_code = cmd;
+        param.key_state = 0;
+        param.tl = (g_bt_service.tl) & 0x0F;
+        g_bt_service.tl = (g_bt_service.tl + 2) & 0x0f;
+        bt_key_act_state_machine(&param);
+    }
+    return ESP_OK;
+}
+
+esp_err_t periph_bluetooth_play(void)
+{
+    return periph_bluetooth_passthrough_cmd(ESP_AVRC_PT_CMD_PLAY);
+}
+
+esp_err_t periph_bluetooth_pause(void)
+{
+    return periph_bluetooth_passthrough_cmd(ESP_AVRC_PT_CMD_PAUSE);
+}
+
+esp_err_t periph_bluetooth_stop(void)
+{
+    return periph_bluetooth_passthrough_cmd(ESP_AVRC_PT_CMD_STOP);
+}
+
+esp_err_t periph_bluetooth_next(void)
+{
+    return periph_bluetooth_passthrough_cmd(ESP_AVRC_PT_CMD_FORWARD);
+}
+
+esp_err_t periph_bluetooth_prev(void)
+{
+    return periph_bluetooth_passthrough_cmd(ESP_AVRC_PT_CMD_BACKWARD);
+}
+
+esp_err_t periph_bluetooth_rewind(void)
+{
+    return periph_bluetooth_passthrough_cmd(ESP_AVRC_PT_CMD_REWIND);
+}
+
+esp_err_t periph_bluetooth_fast_forward(void)
+{
+    return periph_bluetooth_passthrough_cmd(ESP_AVRC_PT_CMD_FAST_FORWARD);
 }
