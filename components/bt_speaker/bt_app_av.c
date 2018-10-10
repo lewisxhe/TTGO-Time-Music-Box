@@ -92,7 +92,7 @@ void bt_app_rc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param
         break;
     }
 }
-
+#include "board.h"
 static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
 {
     ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
@@ -109,6 +109,8 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
         {
             // ESP_LOGI(BT_AV_TAG, "i2s_stop");
             // i2s_stop(0);
+            ESP_LOGI("TAG", "PCM5102_MUTE_ON");
+            gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_ON);
             esp_bt_gap_set_scan_mode(ESP_BT_SCAN_MODE_CONNECTABLE_DISCOVERABLE);
         }
         else if (a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED)
@@ -124,6 +126,21 @@ static void bt_av_hdl_a2d_evt(uint16_t event, void *p_param)
         a2d = (esp_a2d_cb_param_t *)(p_param);
         ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", m_a2d_audio_state_str[a2d->audio_stat.state]);
         m_audio_state = a2d->audio_stat.state;
+        switch (m_audio_state)
+        {
+        case ESP_A2D_AUDIO_STATE_REMOTE_SUSPEND:
+            break;
+        case ESP_A2D_AUDIO_STATE_STOPPED:
+            ESP_LOGI("TAG", "PCM5102_MUTE_ON");
+            gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_ON);
+            break;
+        case ESP_A2D_AUDIO_STATE_STARTED:
+            ESP_LOGI("TAG", "PCM5102_MUTE_OFF");
+            gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_OFF);
+            break;
+        default:
+            break;
+        }
         if (ESP_A2D_AUDIO_STATE_STARTED == a2d->audio_stat.state)
         {
             m_pkt_cnt = 0;

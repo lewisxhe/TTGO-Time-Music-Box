@@ -13,7 +13,7 @@ extern "C" {
 // #define IIC_CLK                     18
 // #define IIC_SDA                     19
 
-#define PCM5102_MUTE                0     
+#define PCM5102_MUTE                33     
 #define PCM5102_MUTE_ON             0
 #define PCM5102_MUTE_OFF            1
 
@@ -30,7 +30,7 @@ extern "C" {
 #define TFT_SPI_SCLK                    18
 #define TFT_SPI_CS                      5
 #define TFT_DC                          23
-#define TFT_RESET                       33
+#define TFT_RESET                       -1//33
 #define TFT_BACKLIGHT                   27
 #define TFT_CHIP_TYPE                   DISP_TYPE_ST7789V   //DISP_TYPE_ILI9341
 

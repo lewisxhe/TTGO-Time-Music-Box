@@ -13,20 +13,8 @@
 // ==========================================================
 
 
-static SemaphoreHandle_t pdMutex = NULL;
-
-void send_info_to_display(int16_t x,int16_t y,const char * str)
-{
-    if(!pdMutex) return;
-    xSemaphoreTake(pdMutex,portMAX_DELAY);
-    TFT_print(str, x, y);
-    xSemaphoreGive(pdMutex);
-}
-
 void display_init(void)
 {
-    pdMutex = xSemaphoreCreateMutex();
-
     tft_disp_type = TFT_CHIP_TYPE;
     _width = DEFAULT_TFT_DISPLAY_WIDTH;   // smaller dimension
     _height = DEFAULT_TFT_DISPLAY_HEIGHT; // larger dimension
@@ -64,9 +52,7 @@ void display_init(void)
 
     // ================================
     // ==== Initialize the Display ====
-    ESP_LOGI(DISPLAY_TAG, "SPI: display init...");
     TFT_display_init();
-    ESP_LOGI(DISPLAY_TAG, "OK");
 
     font_rotate = 0;
     text_wrap = 0;
