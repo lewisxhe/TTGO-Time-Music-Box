@@ -61,6 +61,8 @@
 #include "merror.h"
 #include "display.h"
 #include "esp_peripherals.h"
+#include "button.h"
+#include "periph_button.h"
 
 #define TAG "[main]"
 
@@ -166,8 +168,6 @@ void i2s_init(void)
     gpio_pad_select_gpio(PCM5102_MUTE);
     gpio_set_direction(PCM5102_MUTE, GPIO_MODE_OUTPUT);
     gpio_set_level(PCM5102_MUTE, PCM5102_MUTE_ON);
-
-
 
 #ifdef CONFIG_TTGO_T9_BOARD
     // PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_CLK_OUT1);
@@ -603,6 +603,14 @@ void wifi_config_task(void)
     _fg = TFT_WHITE;
 }
 
+void mbutton_init()
+{
+    periph_button_cfg_t config ;
+    config.gpio_mask = GPIO_SEL_34 | GPIO_SEL_36 | GPIO_SEL_39;
+    config.long_press_time_ms = 5000;
+    periph_button_init(&config);
+}
+
 void app_task(void)
 {
     // ====================================================================
@@ -685,6 +693,8 @@ void app_main()
     // ====================================================================
     display_init();
     tft_printf(x, MAIN_Y, "Initialization display [OK]");
+
+    mbutton_init();
 
     tft_printf(x, y, "SPRAM free size[%.2fMB]", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0 / 1024.0);
     vTaskDelay(800 / portTICK_PERIOD_MS);
