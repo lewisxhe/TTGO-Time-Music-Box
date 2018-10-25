@@ -94,6 +94,7 @@ static SemaphoreHandle_t xHttpSemaphore = NULL;
 static TimerHandle_t xTimer = NULL;
 static char recv_buf[1024];
 static bool sdcard_is_mount = false;
+
 /* event for handler "bt_av_hdl_stack_up */
 enum
 {
@@ -298,7 +299,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
     // APP_ERROR_CHECK(ret < 0, "Connect host fail", goto ERR1);
     if (ret == -1)
     {
-        perror("Create socket : ");
+        perror("connect : ");
         goto ERR1;
     }
 

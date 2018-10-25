@@ -13,12 +13,12 @@ extern "C" {
 // #define IIC_CLK                     18
 // #define IIC_SDA                     19
 
-#define PCM5102_MUTE                33     
+#define PCM5102_MUTE                21
 #define PCM5102_MUTE_ON             0
 #define PCM5102_MUTE_OFF            1
 
 /* I2S gpios */
-#define IIS_DOUT                    32
+#define IIS_DOUT                    22
 #define IIS_LRCK                    25
 #define IIS_BCK                     26
 #define IIS_DSIN                    -1
@@ -30,7 +30,7 @@ extern "C" {
 #define TFT_SPI_SCLK                    18
 #define TFT_SPI_CS                      5
 #define TFT_DC                          23
-#define TFT_RESET                       -1//33
+#define TFT_RESET                       -1
 #define TFT_BACKLIGHT                   27
 #define TFT_CHIP_TYPE                   DISP_TYPE_ST7789V   //DISP_TYPE_ILI9341
 
@@ -39,11 +39,6 @@ extern "C" {
 #define SDCARD_D1                       4
 #define SDCARD_D2                       12
 #define SDCARD_D3                       13
-//SDCARD_CLK    GPIO14
-
-
-
-
 
 
 #ifdef __cplusplus

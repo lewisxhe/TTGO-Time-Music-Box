@@ -66,7 +66,7 @@ static void button_send_event(int event_id, uint64_t mask)
     }
 }
 
-static esp_err_t _button_run()
+static esp_err_t _button_run(void)
 {
     button_result_t result;
     if (button_read(periph_btn->btn, &result))
