@@ -46,9 +46,11 @@ typedef struct
     esp_button_handle_t btn;
     uint64_t gpio_mask;
     int long_press_time_ms;
+    void (*button_callback)(int id, int num);
 } periph_button_t;
 
-periph_button_t *periph_btn = NULL;
+static QueueHandle_t btn_msg = NULL;
+static periph_button_t *periph_btn = NULL;
 static TimerHandle_t btn_timer = NULL;
 
 static void button_send_event(int event_id, uint64_t mask)
@@ -59,7 +61,11 @@ static void button_send_event(int event_id, uint64_t mask)
         if (mask & 0x01)
         {
             // esp_periph_send_event(event_id, (void *)gpio_num, 0);
-            ESP_LOGI(TAG, "id:%x gpio:%d", event_id, gpio_num);
+            // ESP_LOGI(TAG, "id:%x gpio:%d", event_id, gpio_num);
+            if (periph_btn->button_callback)
+            {
+                periph_btn->button_callback(event_id, gpio_num);
+            }
         }
         mask >>= 1;
         gpio_num++;
@@ -68,16 +74,6 @@ static void button_send_event(int event_id, uint64_t mask)
 
 static esp_err_t _button_run(void)
 {
-    button_result_t result;
-    if (button_read(periph_btn->btn, &result))
-    {
-        ESP_LOGI(TAG, "Button event, press_mask %llx, release_mask: %llx, long_press_mask: %llx, long_release_mask: %llx",
-                 result.press_mask, result.release_mask, result.long_press_mask, result.long_release_mask);
-        button_send_event(PERIPH_BUTTON_PRESSED, result.press_mask);
-        button_send_event(PERIPH_BUTTON_RELEASE, result.release_mask);
-        button_send_event(PERIPH_BUTTON_LONG_PRESSED, result.long_press_mask);
-        button_send_event(PERIPH_BUTTON_LONG_RELEASE, result.long_release_mask);
-    }
     return ESP_OK;
 }
 
@@ -94,7 +90,33 @@ static void IRAM_ATTR button_intr_handler(void *param)
 
 static void button_timer_handler(xTimerHandle tmr)
 {
-    _button_run();
+    static button_result_t result;
+    if (button_read(periph_btn->btn, &result))
+    {
+        xQueueSendFromISR(btn_msg, &result, pdFALSE);
+
+        // ESP_LOGI(TAG, "Button event, press_mask %llx, release_mask: %llx, long_press_mask: %llx, long_release_mask: %llx",
+        //          result.press_mask, result.release_mask, result.long_press_mask, result.long_release_mask);
+        // button_send_event(PERIPH_BUTTON_PRESSED, result.press_mask);
+        // button_send_event(PERIPH_BUTTON_RELEASE, result.release_mask);
+        // button_send_event(PERIPH_BUTTON_LONG_PRESSED, result.long_press_mask);
+        // button_send_event(PERIPH_BUTTON_LONG_RELEASE, result.long_release_mask);
+    }
+}
+
+static void button_task(void *param)
+{
+    button_result_t result;
+    for (;;)
+    {
+        if (xQueueReceive(btn_msg, &result, portMAX_DELAY) == pdPASS)
+        {
+            button_send_event(PERIPH_BUTTON_PRESSED, result.press_mask);
+            button_send_event(PERIPH_BUTTON_RELEASE, result.release_mask);
+            button_send_event(PERIPH_BUTTON_LONG_PRESSED, result.long_press_mask);
+            button_send_event(PERIPH_BUTTON_LONG_RELEASE, result.long_release_mask);
+        }
+    }
 }
 
 esp_err_t periph_button_init(periph_button_cfg_t *config)
@@ -108,9 +130,15 @@ esp_err_t periph_button_init(periph_button_cfg_t *config)
         .button_intr_handler = button_intr_handler,
         .intr_context = NULL,
     };
-
+    periph_btn->button_callback = config->button_callback;
     periph_btn->btn = button_init(&btn_config);
+    btn_msg = xQueueCreate(10, sizeof(button_result_t));
+    if (!btn_msg)
+    {
+        ESP_LOGE(TAG, "Create queue handle fail");
+        esp_restart();
+    }
+    xTaskCreate(button_task, "button_task", 4096, NULL, 2, NULL);
     esp_periph_start_timer(btn_timer, 50 / portTICK_RATE_MS, button_timer_handler);
-
     return ESP_OK;
 }

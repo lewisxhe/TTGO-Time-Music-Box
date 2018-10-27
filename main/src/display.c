@@ -60,7 +60,7 @@ void display_init(void)
     font_forceFixed = 0;
     image_debug = 0;
     TFT_setGammaCurve(DEFAULT_GAMMA_CURVE);
-    TFT_setRotation(LANDSCAPE_FLIP);
+    TFT_setRotation(LANDSCAPE);
     TFT_setFont(DEFAULT_FONT, NULL);
     _fg = TFT_WHITE;
 }

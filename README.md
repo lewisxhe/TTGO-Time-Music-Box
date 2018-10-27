@@ -1,22 +1,13 @@
-ESP-IDF A2DP-SINK demo
+TTGO Time Music box 
 ======================
 
-Demo of A2DP audio sink role
 
-This is the demo of API implementing Advanced Audio Distribution Profile to receive an audio stream.
+* Time Atlas: 
+Get a picture from the [BIJINT](http://www.bijint.com/model/) website every minute as a display of time, if it fails, display the local font time style
 
-For the I2S codec, pick whatever chip or board works for you; this code was written using a PCM5102 chip, but other I2S boards and chips will probably work as well. The default I2S connections are shown below, but these can be changed in menuconfig:
+* Album: 
+Press the button next to the board reset button to display the changes as a local SD card picture. Note: the picture size will be limited. If the image is too large, it will not be displayed, or the zoom will be incomplete.
 
-| ESP pin   | I2S signal   |
-| :-------- | :----------- |
-| GPIO22    | LRCK         |
-| GPIO25    | DATA         |
-| GPIO26    | BCK          |
+* Bluetooth speaker:
+Open the phone Bluetooth can search for "TTGO-BT-SPEAKER", you can play music when connected
 
-If the internal DAC is selected, analog audio will be available on GPIO25 and GPIO26. The output resolution on these pins will always be limited to 8 bit because of the internal structure of the DACs.
-
-
-After the program is started, other bluetooth devices such as smart phones can discover a device named "ESP_SPEAKER". Once a connection is established, audio data can be transmitted. This will be visible in the application log including a count of audio data packets.
-
-
-[bijint](http://www.bijint.com/model/)

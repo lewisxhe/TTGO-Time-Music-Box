@@ -227,6 +227,11 @@ static void bt_av_hdl_avrc_evt(uint16_t event, void *p_param)
         if (rc->conn_stat.connected)
         {
             bt_av_new_track();
+            bt_key_act_sm_init();
+        }
+        else if (0 == rc->conn_stat.connected)
+        {
+            bt_key_act_sm_deinit();
         }
         break;
     }

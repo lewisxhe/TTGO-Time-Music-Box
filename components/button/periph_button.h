@@ -39,6 +39,7 @@ extern "C" {
 typedef struct {
     uint64_t gpio_mask;     /*!< GPIO Mask using for this Button peripheral, it is BIT(GPIO_NUM), ex: GPIO_SEL_36 | GPIO_SEL_36 */
     int long_press_time_ms; /*!< Long press duration in milliseconds, default is 2000ms */
+    void (*button_callback)(int id,int num);
 } periph_button_cfg_t;
 
 /**

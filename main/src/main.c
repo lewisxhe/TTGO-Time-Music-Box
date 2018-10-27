@@ -52,7 +52,6 @@
 #include "driver/sdmmc_host.h"
 #include "driver/sdspi_host.h"
 #include "sdmmc_cmd.h"
-/*spiram*/
 #include "esp_heap_caps.h"
 
 #include "hal_i2c.h"
@@ -63,6 +62,11 @@
 #include "esp_peripherals.h"
 #include "button.h"
 #include "periph_button.h"
+#include <sys/unistd.h>
+#include <sys/types.h>
+#include <dirent.h>
+
+#include "ff.h"
 
 #define TAG "[main]"
 
@@ -94,7 +98,11 @@ static SemaphoreHandle_t xHttpSemaphore = NULL;
 static TimerHandle_t xTimer = NULL;
 static char recv_buf[1024];
 static bool sdcard_is_mount = false;
+static TaskHandle_t httpHandle = NULL;
+static TaskHandle_t picHandle = NULL;
+static TaskHandle_t displayHandle = NULL;
 
+static void button_handle(int id, int num);
 /* event for handler "bt_av_hdl_stack_up */
 enum
 {
@@ -291,8 +299,6 @@ bool request_image(uint8_t hours, uint8_t mintues)
         goto ERR0;
     }
 
-    ESP_LOGI(TAG, "fd : %d", fd);
-
     bcopy((char *)server->h_addr, (char *)&add.sin_addr.s_addr, server->h_length);
 
     ret = connect(fd, (struct sockaddr *)&add, sizeof(add));
@@ -310,8 +316,6 @@ bool request_image(uint8_t hours, uint8_t mintues)
     ret = write(fd, http_buf, strlen(http_buf));
     APP_ERROR_CHECK(ret < 0, "Send HTTP Request fail", goto ERR1);
 
-#if 1
-
     ret = read(fd, recv_buf, sizeof(recv_buf));
     APP_ERROR_CHECK(ret < 0, "Read socket fail", goto ERR1);
 
@@ -319,7 +323,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
 
     if (strcmp(status, "HTTP/1.1 200 OK") != 0)
     {
-        ESP_LOGI(TAG, "Request fail HTTP Return %s", status);
+        ESP_LOGE(TAG, "Request fail HTTP Return %s", status);
         goto ERR1;
     }
 
@@ -331,7 +335,6 @@ bool request_image(uint8_t hours, uint8_t mintues)
     }
 
     size_t length = atoi(s);
-    ESP_LOGI(TAG, "Content-Length: %u", length);
 
     // Skip HTTP headers
     for (int i = 0; i < ret; ++i)
@@ -339,7 +342,7 @@ bool request_image(uint8_t hours, uint8_t mintues)
         if ((recv_buf[i] == '\r') && (recv_buf[i + 1] == '\n') && (recv_buf[i + 2] == '\r') && (recv_buf[i + 3] == '\n'))
         {
             offset = i + 4;
-            ESP_LOGI(TAG, "Find offset : %d", offset);
+            // ESP_LOGI(TAG, "Find offset : %d", offset);
         }
     }
 
@@ -357,7 +360,6 @@ bool request_image(uint8_t hours, uint8_t mintues)
         {
             if (st.st_size == length)
             {
-                ESP_LOGI(TAG, "The file already exists");
                 close(fd);
                 return true;
             }
@@ -402,7 +404,6 @@ bool request_image(uint8_t hours, uint8_t mintues)
         }
         else if (ret == 0)
         {
-            ESP_LOGI(TAG, "peer closed ...\n");
             break;
         }
         else
@@ -418,15 +419,11 @@ bool request_image(uint8_t hours, uint8_t mintues)
 
     if (file_size != length)
     {
-        ESP_LOGI(TAG, "Recv Image fail");
         goto ERR2;
     }
 
-    ESP_LOGI(TAG, " file_size : %u", file_size);
     fclose(f);
-#endif
     close(fd);
-    ESP_LOGI(TAG, "Close fd: %d", fd);
     return true;
 
 ERR2:
@@ -434,7 +431,6 @@ ERR2:
     unlink(filename);
 ERR1:
     close(fd);
-    ESP_LOGI(TAG, "ERR1 Close fd: %d", fd);
 ERR0:
     return false;
 }
@@ -471,12 +467,16 @@ RELOAD:
             int retry = 0;
             bool isSuccess = false;
             ESP_LOGI(TAG, "update images [%d]:[%d] Images", h, m);
-            do
+            if (periph_wifi_wait_for_connected(portMAX_DELAY) == ESP_OK)
             {
-                isSuccess = request_image(h, m);
-                vTaskDelay(5000 / portTICK_PERIOD_MS);
-                retry++;
-            } while (retry < HTTP_REQUEST_RETRY_COUNT && !isSuccess);
+                ESP_LOGI(TAG, "Srart request images ");
+                do
+                {
+                    isSuccess = request_image(h, m);
+                    vTaskDelay(5000 / portTICK_PERIOD_MS);
+                    retry++;
+                } while (retry < HTTP_REQUEST_RETRY_COUNT && !isSuccess);
+            }
         }
         mm = 0;
     }
@@ -491,12 +491,15 @@ RELOAD:
 
 void http_task(void *param)
 {
+    ESP_LOGI(TAG, "Started HTTP Task");
     for (;;)
     {
         if (xSemaphoreTake(xHttpSemaphore, portMAX_DELAY) == pdTRUE)
         {
-            if (periph_wifi_wait_for_connected(portMAX_DELAY) == ESP_OK && sdcard_is_mount)
+            ESP_LOGI(TAG, "Take http task lock");
+            if (sdcard_is_mount)
             {
+                ESP_LOGI(TAG, "Take http task lock two");
                 get_pic();
             }
             vTaskDelay(500 / portTICK_PERIOD_MS);
@@ -604,14 +607,6 @@ void wifi_config_task(void)
     _fg = TFT_WHITE;
 }
 
-void mbutton_init()
-{
-    periph_button_cfg_t config ;
-    config.gpio_mask = GPIO_SEL_34 | GPIO_SEL_36 | GPIO_SEL_39;
-    config.long_press_time_ms = 5000;
-    periph_button_init(&config);
-}
-
 void app_task(void)
 {
     // ====================================================================
@@ -620,19 +615,31 @@ void app_task(void)
     obtain_time();
 
     // ====================================================================
-    // === create http task                                             ===
+    // === initialization button                                        ===
     // ====================================================================
-    xTaskCreate(http_task, "http_task", 4096, NULL, 2, NULL);
+    periph_button_cfg_t config;
+    config.gpio_mask = GPIO_SEL_34 | GPIO_SEL_36 | GPIO_SEL_39;
+    config.long_press_time_ms = 5000;
+    config.button_callback = button_handle;
+    periph_button_init(&config);
 
-    // ====================================================================
-    // === create display task                                          ===
-    // ====================================================================
-    xTaskCreate(display_task, "display_task", 4096, NULL, 2, NULL);
+    if (!picHandle)
+    {
+        // ====================================================================
+        // === create http task                                             ===
+        // ====================================================================
+        xTaskCreate(http_task, "http_task", 4096, NULL, 2, &httpHandle);
 
-    // ====================================================================
-    // === start timer                                                  ===
-    // ====================================================================
-    esp_periph_start_timer(xTimer, 1000 / portTICK_PERIOD_MS, timing_callback);
+        // ====================================================================
+        // === create display task                                          ===
+        // ====================================================================
+        xTaskCreate(display_task, "display_task", 4096, NULL, 2, &displayHandle);
+
+        // ====================================================================
+        // === start timer                                                  ===
+        // ====================================================================
+        esp_periph_start_timer(xTimer, 1000 / portTICK_PERIOD_MS, timing_callback);
+    }
 }
 
 void wifi_task(void *param)
@@ -669,6 +676,131 @@ void wifi_task(void *param)
     vTaskDelete(NULL);
 }
 
+void local_picture_task(void *param)
+{
+    const char *pic_dir = "/sdcard/picture";
+    struct dirent *de = NULL;
+    DIR *dir = NULL;
+
+    TFT_fillScreen(TFT_BLACK);
+    TFT_setFont(DEFAULT_FONT, NULL);
+    _bg = TFT_BLACK;
+    _fg = TFT_WHITE;
+
+RELOAR_DIR:
+    dir = opendir(pic_dir);
+    if (!dir)
+    {
+        perror("Open dir : ");
+        mkdir(pic_dir, 0755);
+        goto ERR0;
+    }
+    de = readdir(dir);
+    if (!de)
+    {
+        goto ERR0;
+    }
+    while (true)
+    {
+        if (!de)
+        {
+            closedir(dir);
+            goto RELOAR_DIR;
+        }
+        ESP_LOGI(TAG, "d_name : %s\n", de->d_name);
+        if (sscanf(de->d_name, "%*[^.].%s", http_buf) != -1 && !strcasecmp(http_buf, "jpg"))
+        {
+            snprintf(http_buf, sizeof(http_buf), "%s/%s", pic_dir, de->d_name);
+            ESP_LOGI(TAG, "Show %s pic", http_buf);
+            TFT_jpg_image(CENTER, CENTER, 0, -1, http_buf, NULL, 0);
+        }
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+        de = readdir(dir);
+    }
+
+ERR0:
+    tft_printf(CENTER, CENTER, "No photos in the directory");
+    tft_printf(CENTER, LASTY + TFT_getfontheight() + 2, " Please put photos in the SDCard picture");
+    tft_printf(CENTER, LASTY + TFT_getfontheight() + 2, "directory");
+    while (1)
+    {
+        vTaskDelay(portMAX_DELAY);
+    }
+}
+
+static void button_handle(int id, int num)
+{
+    const char *stat[] = {"PERIPH_BUTTON_UNCHANGE", "PERIPH_BUTTON_PRESSED", "PERIPH_BUTTON_RELEASE", "PERIPH_BUTTON_LONG_PRESSED", "PERIPH_BUTTON_LONG_RELEASE"};
+    ESP_LOGI(TAG, "[%s]: %d NUM", stat[id], num);
+    switch (id)
+    {
+    case PERIPH_BUTTON_LONG_PRESSED:
+        //SmartConfig
+        if (num == GPIO_NUM_39)
+        {
+            ESP_LOGI(TAG, "Restore wifi ...");
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            esp_wifi_restore();
+            esp_restart();
+        }
+        break;
+    case PERIPH_BUTTON_PRESSED:
+        //Image select
+        if (num == GPIO_NUM_39)
+        {
+            if (httpHandle)
+            {
+                esp_periph_stop_timer(xTimer);
+                vTaskDelete(httpHandle);
+                httpHandle = NULL;
+                vTaskDelete(displayHandle);
+                displayHandle = NULL;
+                ESP_LOGE(TAG, "Delete http task");
+                xTaskCreate(local_picture_task, "local_picture_task", 4096, NULL, 2, &picHandle);
+            }
+            else if (!httpHandle)
+            {
+                if (picHandle)
+                {
+                    vTaskDelete(picHandle);
+                    picHandle = NULL;
+                }
+                vTaskDelay(500 / portTICK_PERIOD_MS);
+                ESP_LOGI(TAG, "Started HTTP Task ...");
+                // ====================================================================
+                // === create http task                                             ===
+                // ====================================================================
+                xTaskCreate(http_task, "http_task", 4096, NULL, 2, &httpHandle);
+
+                // ====================================================================
+                // === create display task                                          ===
+                // ====================================================================
+                xTaskCreate(display_task, "display_task", 4096, NULL, 2, &displayHandle);
+
+                // ====================================================================
+                // === start timer                                                  ===
+                // ====================================================================
+                esp_periph_start_timer(xTimer, 1000 / portTICK_PERIOD_MS, timing_callback);
+
+                xSemaphoreGive(xHttpSemaphore);
+                xSemaphoreGive(xDisplaySemaphore);
+            }
+        }
+        else if (num == GPIO_NUM_34)
+        {
+            periph_bluetooth_next();
+        }
+        else if (num == GPIO_NUM_36)
+        {
+            periph_bluetooth_prev();
+        }
+        break;
+
+    default:
+        break;
+    }
+}
+
 void app_main()
 {
     int x = MAIN_X, y = LASTY + TFT_getfontheight() + 2;
@@ -694,8 +826,6 @@ void app_main()
     // ====================================================================
     display_init();
     tft_printf(x, MAIN_Y, "Initialization display [OK]");
-
-    mbutton_init();
 
     tft_printf(x, y, "SPRAM free size[%.2fMB]", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0 / 1024.0);
     vTaskDelay(800 / portTICK_PERIOD_MS);

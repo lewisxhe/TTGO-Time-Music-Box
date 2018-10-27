@@ -2897,6 +2897,29 @@ void TFT_jpg_image(int x, int y, uint8_t scale, int s, char *fname, uint8_t *buf
 			rc = jd_prepare(&jd, tjd_input, (void *)work, sz_work, &dev);
 		if (rc == JDR_OK)
 		{
+			/*-------------------------------*/
+			ESP_LOGI("decode","decode size: %u * %u",jd.width,jd.height);
+			if(jd.width > 320 && jd.width < 1024)
+			{
+				ESP_LOGI("decode","use scale 1");
+				TFT_fillScreen(TFT_BLACK);
+				scale = 1;
+			}
+			else if(jd.width > 1024 && jd.width < 2048)
+			{
+				ESP_LOGI("decode","use scale 2");
+				TFT_fillScreen(TFT_BLACK);
+				scale = 2;
+			}
+			else if(jd.width > 2048)
+			{
+				ESP_LOGI("decode","use scale 3");
+				TFT_fillScreen(TFT_BLACK);
+				scale = 3;
+			}
+
+
+			/*-------------------------------*/
 			if (x == CENTER)
 				x = ((dispWin.x2 - dispWin.x1 + 1 - (int)(jd.width >> scale)) / 2) + dispWin.x1;
 			else if (x == RIGHT)
