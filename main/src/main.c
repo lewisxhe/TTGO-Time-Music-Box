@@ -54,8 +54,6 @@
 #include "sdmmc_cmd.h"
 #include "esp_heap_caps.h"
 
-#include "hal_i2c.h"
-#include "wm8978.h"
 #include "board.h"
 #include "merror.h"
 #include "display.h"

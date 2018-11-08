@@ -6,13 +6,6 @@ extern "C" {
 #endif
 #include "tftspi.h"
 
-#define GPIO_AUXIN_DETECT           12
-
-
-// /* I2C gpios */
-// #define IIC_CLK                     18
-// #define IIC_SDA                     19
-
 #define PCM5102_MUTE                21
 #define PCM5102_MUTE_ON             0
 #define PCM5102_MUTE_OFF            1
