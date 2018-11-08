@@ -46,6 +46,7 @@ Open the phone Bluetooth can search for "TTGO-BT-SPEAKER", you can play music wh
 | 39   | Config WiFi  | Long Perss |
 | 34   | Next         | Perss      |
 | 36   | Previous     | Perss      |
+
 ![](./images/2.jpg)
 ![](./images/3.jpg)
 ![](./images/4.jpg)
