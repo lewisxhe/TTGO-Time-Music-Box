@@ -99,6 +99,7 @@ static bool sdcard_is_mount = false;
 static TaskHandle_t httpHandle = NULL;
 static TaskHandle_t picHandle = NULL;
 static TaskHandle_t displayHandle = NULL;
+bool initDone = false;
 
 static void button_handle(int id, int num);
 /* event for handler "bt_av_hdl_stack_up */
@@ -612,14 +613,14 @@ void app_task(void)
     // ====================================================================
     obtain_time();
 
-    // ====================================================================
-    // === initialization button                                        ===
-    // ====================================================================
-    periph_button_cfg_t config;
-    config.gpio_mask = GPIO_SEL_34 | GPIO_SEL_36 | GPIO_SEL_39;
-    config.long_press_time_ms = 5000;
-    config.button_callback = button_handle;
-    periph_button_init(&config);
+    // // ====================================================================
+    // // === initialization button                                        ===
+    // // ====================================================================
+    // periph_button_cfg_t config;
+    // config.gpio_mask = GPIO_SEL_34 | GPIO_SEL_36 | GPIO_SEL_39;
+    // config.long_press_time_ms = 5000;
+    // config.button_callback = button_handle;
+    // periph_button_init(&config);
 
     if (!picHandle)
     {
@@ -743,6 +744,8 @@ static void button_handle(int id, int num)
         }
         break;
     case PERIPH_BUTTON_PRESSED:
+        if (!initDone)
+            return;
         //Image select
         if (num == GPIO_NUM_39)
         {
@@ -786,10 +789,14 @@ static void button_handle(int id, int num)
         }
         else if (num == GPIO_NUM_34)
         {
+            if (!initDone)
+                return;
             periph_bluetooth_next();
         }
         else if (num == GPIO_NUM_36)
         {
+            if (!initDone)
+                return;
             periph_bluetooth_prev();
         }
         break;
@@ -829,6 +836,15 @@ void app_main()
     vTaskDelay(800 / portTICK_PERIOD_MS);
 
     // ====================================================================
+    // === initialization button                                        ===
+    // ====================================================================
+    periph_button_cfg_t config;
+    config.gpio_mask = GPIO_SEL_34 | GPIO_SEL_36 | GPIO_SEL_39;
+    config.long_press_time_ms = 5000;
+    config.button_callback = button_handle;
+    periph_button_init(&config);
+
+    // ====================================================================
     // === initialization i2s interface                                 ===
     // ====================================================================
     i2s_init();
@@ -853,4 +869,6 @@ void app_main()
     // === create wifi task                                             ===
     // ====================================================================
     xTaskCreate(wifi_task, "wifi_task", 4096, NULL, 2, NULL);
+
+    initDone = true;
 }
